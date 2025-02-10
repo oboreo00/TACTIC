@@ -2403,7 +2403,7 @@ try:
 except ImportError as e:
     from Crypto.PublicKey import RSA
     from Crypto.Hash import MD5, SHA256
-    from Crypto.Signature import pkcs1_15
+    #from Crypto.Signature import pkcs1_15
 
 
 # HACK:  From PyCrypto-2.0.1 to PyCrypt-2.3, the install datastructure: RSAobj
