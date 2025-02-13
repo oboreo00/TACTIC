@@ -17,7 +17,7 @@ const Alert = MaterialUI.Alert;
 
 
 
-const ResourceModal = React.forwardRef( (props, ref) => {
+const SimpleModal = React.forwardRef( (props, ref) => {
 
     React.useImperativeHandle( ref, () => ({
         set_show(show) {
@@ -83,7 +83,7 @@ const ResourceModal = React.forwardRef( (props, ref) => {
             <div style={{position: "absolute", top: "10px", right: "10px"}}>
                 { state == "maximize" ?
                 <IconButton
-                    title="Resource"
+                    title="Normal"
                     onClick={ e => {
                         set_state("normal");
                     } }
@@ -128,5 +128,5 @@ const ResourceModal = React.forwardRef( (props, ref) => {
 
 
 if (!spt.react.widget) { spt.react.widget = {}; }
-spt.react.widget.ResourceModal = ResourceModal
+spt.react.widget.SimpleModal = SimpleModal
 
