@@ -1054,7 +1054,6 @@ class Site(object):
         site_obj = Site.get()
         site_obj.init_site(site, options=options)
 
-
         sites = Container.get("sites")
 
         is_redundant = False
@@ -1088,9 +1087,9 @@ class Site(object):
             if state == "OK":
                 pass
             else:
-                print("WARNING: ", e)
+                print("ERROR: ", e)
                 Site.pop_site()
-                raise Exception("WARNING: site [%s] does not exist" % site)
+                raise Exception("site [%s] does not exist" % site)
 
 
 

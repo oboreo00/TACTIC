@@ -34,7 +34,7 @@ from pyasm.command import Command, PasswordAction, SignOutCmd
 from pyasm.biz import Schema
 from pyasm.web import *
 
-from tactic.command import Scheduler, SchedulerTask
+from pyasm.command import Scheduler, SchedulerTask
 from .input_wdg import *
 from .shadowbox_wdg import *
 from .icon_wdg import *

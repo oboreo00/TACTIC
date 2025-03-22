@@ -4954,12 +4954,12 @@ class SObject(object):
 
 
 
-        base_search_type = self.get_base_search_type() 
-        if base_search_type != "sthpw/file":
-            if self.column_exists("relative_dir"):
-                parts = base_search_type.split("/")
-                project_code = Project.get_project_code()
-                defaults['relative_dir'] = '%s/%s' % (project_code, parts[1])
+        #base_search_type = self.get_base_search_type() 
+        #if base_search_type != "sthpw/file":
+        #    if self.column_exists("relative_dir"):
+        #        parts = base_search_type.split("/")
+        #        project_code = Project.get_project_code()
+        #        defaults['relative_dir'] = '%s/%s' % (project_code, parts[1])
 
 
         return defaults
