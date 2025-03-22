@@ -114,6 +114,10 @@ class JSXTranspile():
         # store this somewhere
         basename, ext = os.path.splitext(jsx_path)
         js_path = "%s.js" % basename
+        if not jsx:
+            f = open(js_path, "r")
+            jsx = f.read()
+            f.close()
 
 
         js = None
