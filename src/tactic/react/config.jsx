@@ -9,23 +9,29 @@ const SimpleCellRenderer = spt.react.SimpleCellRenderer;
 const PreviewCellRenderer = spt.react.PreviewCellRenderer;
 
 
-// default save implementation
-const on_cell_value_changed = params => {
-
-    let table_ref = params.table_ref;
-    let data = params.data;
-    let column = params.column.colId;
-
-    //console.log("params: ", params);
-    data[column] = params.newValue;
-
-    table_ref.current.save(data, column);
-}
-
-
-
-
 const Config = (config, options) => {
+
+    let table_ref = options.table_ref;
+
+    // default save implementation
+    const on_cell_value_changed = params => {
+        let table_ref = params.table_ref;
+        let data = params.data;
+        let column = params.column.colId;
+
+        //console.log("params: ", params);
+        data[column] = params.newValue;
+
+        let selected = table_ref.current.get_selected_nodes();
+        selected.forEach( node => {
+            node.data[column] = params.newValue;
+        } )
+
+
+        table_ref.current.save(data, column);
+    }
+
+
 
     let cell_value_changed = options.cell_value_changed;
 
@@ -33,7 +39,6 @@ const Config = (config, options) => {
         cell_value_changed = on_cell_value_changed;
     }
 
-    let table_ref = options.table_ref;
 
 
     // use these definition types as a starting point
@@ -76,6 +81,12 @@ const Config = (config, options) => {
         else if (element_type == "date") {
             definition_type = "simple";
         }
+        else if (element_type == "email") {
+            definition_type = "simple";
+        }
+        else if (element_type == "phone_number") {
+            definition_type = "simple";
+        }
         else if (element_type == "text") {
             definition_type = "simple";
         }
@@ -90,7 +101,8 @@ const Config = (config, options) => {
         let pinned = config_item.pinned;
         let width = config_item.width;
         let flex = config_item.flex;
-
+        let cell_class = config_item.cell_class;
+        let cell_style = config_item.cell_style;
 
         if (!name) {
             throw("No name provided in config")
@@ -101,6 +113,37 @@ const Config = (config, options) => {
 
         config_def["resizable"] = true;
 
+
+        let required = config_item.required;
+        config_def["required"] = required;
+
+
+        let group = config_item.group;
+        if (group) {
+            config_def["group"] = group;
+        }
+
+
+        if (cell_class) {
+            config_def["cellClass"] = cell_class;
+        }
+        if (cell_style) {
+            config_def["cellStyle"] = cell_style;
+        }
+
+
+
+        if (config_item.cell_value_changed) {
+            if (typeof(config_item.cell_value_changed) == "string") {
+                cell_value_changed = eval(config_item.cell_value_changed);
+            }
+            else {
+                cell_value_changed = config_item.cell_value_changed;
+            }
+            config_def["onCellValueChanged"] = cell_value_changed;
+        }
+
+
         if (config_item.filterable == false) {
             config_def["filter"] = null;
         }
@@ -109,12 +152,16 @@ const Config = (config, options) => {
         if (title) {
             config_def["headerName"] = title;
         }
+        else if (title == "") {
+            config_def["headerName"] = "";
+        }
         else {
             config_def["headerName"] = Common.capitalize(name);
         }
 
         if (pinned) {
             config_def["pinned"] = pinned;
+            config_def["lockPinned"] = true;
         }
 
         if (width) {
@@ -126,11 +173,19 @@ const Config = (config, options) => {
         }
 
 
+        let params = {};
+        if (config_item.renderer_params) {
+            params = {...config_item.renderer_params}
+        }
+
 
 
         if (element_type == "select") {
+            let mode = config_item.mode;
+
             let labels = config_item.labels;
             let values = config_item.values || [];
+            let helpers = config_item.helpers || [];
             if (!labels) {
                 labels = values;
             }
@@ -141,22 +196,36 @@ const Config = (config, options) => {
             if (typeof(values) == "string" ) {
                 values = values.split(",")
             }
+            if (typeof(helpers) == "string" ) {
+                helpers = helpers.split(",")
+            }
 
 
-            let params = {
+            params = {
+                ...params,
                 table_ref: table_ref,
                 labels: labels,
                 values: values,
+                helpers: helpers,
             }
 
             if (options.renderer_params) {
                 params = {...params, ...options.renderer_params}
             }
 
+            // applies to buttons or checkboxes
+            let layout = config_item.layout;
+            if (layout) {
+                config_def.layout = layout;
+            }
+
+            config_def.show_title = config_item.show_title;
+
             config_def.cellEditorParams = params;
             config_def.cellRendererParams = params;
 
             config_def.editable = true;
+            config_def.mode = mode;
 
             config_def.onCellValueChanged = e => {
                 let p = {...e, ...params}
@@ -195,7 +264,8 @@ const Config = (config, options) => {
             }
 
 
-            let params = {
+            params = {
+                ...params,
                 table_ref: table_ref,
                 mode: format,
             }
@@ -204,6 +274,21 @@ const Config = (config, options) => {
                 params = {...params, ...options.renderer_params}
             }
 
+            let helper = config_item.helper;
+            if (helper) {
+                config_def.helper = helper;
+            }
+
+            let error = config_item.error;
+            if (error) {
+                config_def.error = error;
+            }
+
+            // number of rows in the input
+            let rows = config_item.rows;
+            if (rows) {
+                params.rows = rows;
+            }
 
 
             let editable = config_item.editable;
@@ -213,7 +298,13 @@ const Config = (config, options) => {
             else {
                 config_def.editable = true;
                 if (format) {
-                    config_def.cellDataType = format;
+                    if (format == "number") {
+                        // for some reason, number doesn't work
+                        config_def.cellDataType = false;
+                    }
+                    else {
+                        config_def.cellDataType = format;
+                    }
                 }
                 config_def.cellEditor = InputEditor;
                 config_def.cellEditorParams = params;
@@ -221,11 +312,26 @@ const Config = (config, options) => {
                     let p = {...e, ...params}
                     return cell_value_changed(p);
                 }
+
             }
             config_def.cellRendererParams = params;
 
-
         }
+
+
+        let onclick = config_item.onclick;
+        if (onclick) {
+            if (typeof(onclick) == "string") {
+                onclick = eval(onclick);
+            }
+            if (typeof(onclick) != "function") alert("NOT A FUNCTION")
+
+            params["onclick"] = onclick;
+        }
+
+
+
+
 
 
         // handle the display
@@ -244,8 +350,6 @@ const Config = (config, options) => {
         config_def.autoHeight = true;
 
     } );
-
-
 
 
     return config_defs;

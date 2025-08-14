@@ -11,6 +11,7 @@ from pyasm.search import Search, SearchType
 from dateutil import parser
 from datetime import datetime, timedelta
 import csv
+from io import StringIO
 
 from dateutil import rrule, parser
 
@@ -33,6 +34,18 @@ class ImportDataCmd(Command):
         pass
 
 
+    def get_delimiter(self, string):
+        if len(string.split('\t')) > 1:
+            return '\t'
+        elif len(string.split(',')) > 1:
+            return ','
+        else:
+            return ','
+
+
+    def get_data_column(self):
+        return "data"
+
 
 
     def execute(self):
@@ -40,7 +53,10 @@ class ImportDataCmd(Command):
         dry_run = self.kwargs.get("dry_run") or False
 
         header = self.kwargs.get("header") or ""
-        headers = header.split("\t")
+
+        delimiter = self.get_delimiter(header)
+
+        headers = header.split(delimiter)
         headers_dict = {}
         for i, header in enumerate(headers):
             header = header.strip()
@@ -59,19 +75,29 @@ class ImportDataCmd(Command):
         self.check_headers(headers_dict)
 
         input_data = self.kwargs.get("data") or ""
+
+        data_io = StringIO(input_data)
+        reader = csv.reader(data_io, delimiter=delimiter, quotechar='"')
+
+        #for row in reader:
+        #    print(row)
+        #print("----")
+
+
+        data_column = self.get_data_column() or "data"
+
         data = []
 
-        delimiter = "\t"
-
+        """
         lines = input_data.split("\n")
-
-
         for line in lines:
             line = line.strip()
             if not line:
                 continue
             values = line.split(delimiter)
+        """
 
+        for values in reader:
             # handle line
             row = {}
             for index, header in enumerate(headers):
@@ -109,7 +135,7 @@ class ImportDataCmd(Command):
                         if header.isnumeric() == False:
                             date = parser.parse(header)
                             # set to the closest monday
-                            date = date - timedelta(days=(date.weekday()))# this subtracts the days to get the Monday of the week
+                            date = date - timedelta(days=(date.weekday()))
 
                             dates = row.get("__dates__")
                             if dates == None:
@@ -129,7 +155,7 @@ class ImportDataCmd(Command):
 
                 if not column:
                     #print("Header [%s] has no mapping" % orig_header)
-                    column = "data->%s" % clean_header
+                    column = "%s->%s" % (data_column, clean_header)
 
                 row[column] = value
 
@@ -147,7 +173,6 @@ class ImportDataCmd(Command):
 
 
         search_type = self.kwargs.get("search_type")
-        print("sss: ", search_type)
 
         # insert the data
         for item in data:

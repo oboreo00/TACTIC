@@ -1,6 +1,7 @@
 const useEffect = React.useEffect;
 const useState = React.useState;
 const useRef = React.useRef;
+const useReducer = React.useReducer;
 
 const Box = MaterialUI.Box;
 const Button = MaterialUI.Button;
@@ -12,6 +13,7 @@ const MenuItem = MaterialUI.MenuItem;
 const Menu = MaterialUI.Menu;
 const Select = MaterialUI.Select;
 const TextField = MaterialUI.TextField;
+const TextareaAutosize = MaterialUI.TextareaAutosize;
 const Checkbox = MaterialUI.Checkbox;
 
 const Dialog = MaterialUI.Dialog;
@@ -31,6 +33,7 @@ const ROOT_CMD = "tactic.react";
 
 
 
+
 const TableLayout = React.forwardRef( (props, ref) => {
 
     React.useImperativeHandle( ref, () => ({
@@ -43,12 +46,23 @@ const TableLayout = React.forwardRef( (props, ref) => {
         get_grid_ref() {
             return grid_ref;
         },
+        /*
         group_data(group_column) {
             return group_by(data, group_column);
         },
-        export_csv() {
-            grid_ref.current.export_csv();
+        */
+        export_csv(params) {
+            grid_ref.current.export_csv(params);
         },
+        get_csv(params) {
+            return grid_ref.current.get_csv(params);
+        },
+
+
+        get_display_data() {
+            return grid_ref.current.get_display_data();
+        },
+
 
         get_selected_nodes() {
             return grid_ref.current.get_selected_nodes();
@@ -57,7 +71,26 @@ const TableLayout = React.forwardRef( (props, ref) => {
            return  grid_ref.current.get_selected_rows();
         },
 
+        show_total() {
+           return grid_ref.current.show_total();
+        },
+
+        show_import_data_modal() {
+            return show_import_data_modal();
+        },
+
+
+        reload() {
+           return  load_data();
+        },
+
+        set_filter(column, options) {
+            set_filter(column, options);
+        }
     } ) )
+
+    const [first_load, set_first_load] = useState(true);
+    const [loading, set_loading] = useState(false);
   
     const [search_type, set_search_type] = useState("");
     const [base_data, set_base_data] = useState([]);
@@ -73,27 +106,87 @@ const TableLayout = React.forwardRef( (props, ref) => {
     const import_data_modal_ref = useRef();
     const grid_ref = useRef();
 
+    const set_filter = (column, options) => {
+        if (!grid_ref.current) {
+            setTimeout( () => {
+                set_filter(column, options);
+            }, 200);
+            return;
+        }
+        grid_ref.current.set_filter(column, options);
+    }
+
+
+    /*
     useEffect( () => {
         init();
     }, [] );
+    */
+
+
+    useEffect( () => {
+        init();
+    }, [props.element_names, props.get_kwargs] )
 
 
     const init = async () => {
-        let element_names = props.element_names || ["code"];
-        set_element_names([...element_names]);
+        let element_names = props.element_names;
 
         let element_definitions = props.element_definitions;
         if (!element_definitions) {
-            config_handler = props.config_handler;
-            element_definitions = await get_element_definitions(config_handler);
+            let config = props.config;
+            if (config) {
+                // convert to AGgrid definitions
+                element_definitions = spt.react.Config(config, {});
+            }
+            else {
+                let config_handler = props.config_handler;
+                if (config_handler) {
+                    element_definitions = await get_element_definitions(config_handler, props.extra_data);
+                }
+            }
         }
-        await set_element_definitions(element_definitions);
+
+        if (!element_names && element_definitions) {
+            element_names = [];
+            Object.keys(element_definitions).forEach( key => {
+                let definition = element_definitions[key];
+                let element_name = definition.field;
+                if (element_name) {
+                    element_names.push(element_name);
+                }
+            } )
+
+        }
+        else if (!element_definitions) {
+            element_definitions = {}
+            element_names.forEach( element_name => {
+                let definition = { field: element_name };
+                element_definitions[element_name] = definition;
+            } )
+
+        }
+
+        set_element_names([...element_names]);
+
+
+        if (element_definitions) {
+            await set_element_definitions(element_definitions);
+
+            build_column_defs(element_names, element_definitions);
+        }
+        else if (props.column_defs) {
+            set_column_defs(props.column_defs);
+        }
 
         set_search_type(props.search_type);
 
-        build_column_defs(element_names, element_definitions);
-
-        await load_data();
+        if (props.data) {
+            set_data(props.data)
+        }
+        else {
+            await load_data();
+        }
 
     }
 
@@ -110,15 +203,31 @@ const TableLayout = React.forwardRef( (props, ref) => {
 
         kwargs["config_handler"] = config_handler;
 
+        if (props.extra_data) {
+            Object.keys(props.extra_data).forEach( key => {
+                kwargs[key] = props.extra_data[key];
+
+                import_options[key] = props.extra_data[key];
+            } )
+        }
+
+
+
+        set_loading(true);
 
         let server = TACTIC.get();
         server.p_execute_cmd(cmd, kwargs)
         .then( ret => {
             let data = ret.info;
             set_data(data);
+            set_first_load(false);
+            setTimeout( () => {
+                set_loading(false);
+            }, 0 );
 
         } )
         .catch( e => {
+            set_loading(false);
             alert("TACTIC ERROR: " + e);
         } )
     }
@@ -135,11 +244,14 @@ const TableLayout = React.forwardRef( (props, ref) => {
         let info = ret.info;
         let config = info.config;
         let renderer_params = info.renderer_params;
+        if (!renderer_params) {
+            renderer_params = info.cell_params;
+        }
 
         // convert to AGgrid definitions
         let definitions = spt.react.Config(config, {
             table_ref: ref,
-            renderer_params: props.renderer_params || renderer_params
+            renderer_params: props.renderer_params || props.cell_params|| renderer_params
         });
 
         return definitions;
@@ -184,7 +296,7 @@ const TableLayout = React.forwardRef( (props, ref) => {
                 mode: mode,
             };
 
-            if (mode == "insert") {
+            if (mode === "insert") {
                 inserts.push(item)
             }
 
@@ -196,6 +308,7 @@ const TableLayout = React.forwardRef( (props, ref) => {
         let kwargs = {
             updates: updates,
             config_handler: props.config_handler,
+            extra_data: props.extra_data
         }
 
 
@@ -211,7 +324,7 @@ const TableLayout = React.forwardRef( (props, ref) => {
             new_sobjects.forEach( item => {
                 data.push(item);
             } )
-            //grid_ref.current.refresh_rows();
+            grid_ref.current.refresh_cells();
 
         } )
         .catch( e => {
@@ -227,7 +340,8 @@ const TableLayout = React.forwardRef( (props, ref) => {
 
         let cmd = props.save_cmd;
         if (!cmd) {
-            cmd = "tactic.react.EditSaveCmd";
+            //cmd = "tactic.react.EditSaveCmd";
+            cmd = "tactic.react.TableSaveCmd"; // use the same save command for everythhing
         }
 
 
@@ -246,7 +360,7 @@ const TableLayout = React.forwardRef( (props, ref) => {
             item: item,
         };
 
-        if (mode == "insert") {
+        if (mode === "insert") {
             inserts.push(item)
         }
 
@@ -264,13 +378,16 @@ const TableLayout = React.forwardRef( (props, ref) => {
             let info = ret.info;
             let sobjects = info.sobjects || [];
 
+            /*
             // add the new items
             sobjects.forEach( item => {
                 data.push(item);
             } )
             set_data([...data]);
+            */
 
-            // TODO: refresh the nodes
+            // Brute force
+            load_data();
 
         } )
         .catch( e => {
@@ -307,15 +424,18 @@ const TableLayout = React.forwardRef( (props, ref) => {
         }
 
 
-        column_defs = [
-            { field: '', maxWidth: 50,
-                headerCheckboxSelection: true,
-                headerCheckboxSelectionFilteredOnly: true,
-                checkboxSelection: true,
-                pinned: "left",
-            },
-        ]
+        column_defs = [];
 
+        if (props.show_row_select === true || typeof(props.show_row_select) === "undefined") {
+            column_defs.push(
+                { field: '', maxWidth: 50,
+                    headerCheckboxSelection: true,
+                    headerCheckboxSelectionFilteredOnly: true,
+                    checkboxSelection: true,
+                    pinned: "left",
+                }
+            )
+        }
 
         new_element_names.forEach( element => {
             let column_def;
@@ -338,6 +458,10 @@ const TableLayout = React.forwardRef( (props, ref) => {
 
         set_column_defs(column_defs);
     }
+
+
+
+
 
 
     let property_names = ["title", "name", "type", "width"];
@@ -406,8 +530,7 @@ const TableLayout = React.forwardRef( (props, ref) => {
 
 
 
-    on_select = (selected) => {
-    }
+    const on_select = selected => { }
 
 
 
@@ -418,10 +541,13 @@ const TableLayout = React.forwardRef( (props, ref) => {
                 name={props.name}
                 ref={edit_modal_ref}
                 on_insert={insert_item}
-                element_names={props.element_names}
+                element_names={element_names}
                 element_definitions={element_definitions}
+                edit_element_names={props.edit_element_names}
+                extra_data={props.extra_data}
             />
 
+            { false &&
             <EditModal
                 name={"Custom Property"}
                 ref={property_modal_ref}
@@ -429,6 +555,7 @@ const TableLayout = React.forwardRef( (props, ref) => {
                 element_names={property_names}
                 element_definitions={property_definitions}
             />
+            }
 
 
             <DeleteModal
@@ -438,6 +565,7 @@ const TableLayout = React.forwardRef( (props, ref) => {
                 //ondelete={ e => {alert("delete")}}
                 element_names={property_names}
                 element_definitions={property_definitions}
+                load_data={load_data}
             />
 
 
@@ -445,13 +573,18 @@ const TableLayout = React.forwardRef( (props, ref) => {
 
 
 
-            <div style={{display: "flex", gap: "15px"}}>
+            <div style={{display: "flex", gap: "15px", alignItems: "center"}}>
+
+                { props.get_shelf && props.get_shelf() }
+
+
                 { props.element_names &&
                 <ColumnManagerMenu
                     all_columns={props.all_element_names || props.element_names}
                     columns={element_names}
                     update={build_column_defs}
                     property_modal_ref={property_modal_ref}
+                    on_column_add={props.on_column_add}
                 />
                 }
 
@@ -488,33 +621,51 @@ const TableLayout = React.forwardRef( (props, ref) => {
             return props.name;
         }
         else {
-            return "TABLE"
+            return ""
         }
     }
 
 
+    let EmptyWdg = props.empty_wdg;
 
     return (
     <div>
-        { props.show_shelf != false &&
+        { props.show_shelf !== false &&
         <div style={{display: "flex", justifyContent: "space-between"}}>
             <div style={{fontSize: "1.2rem"}}>{get_name()}</div>
             { get_shelf() }
         </div>
         }
 
-        <DataGrid
-            ref={grid_ref}
-            name={get_name()}
-            column_defs={column_defs}
-            data={data}
-            supress_click={true}
-            auto_height={props.auto_height}
-            height={props.height}
-            row_height={props.row_height}
-            enable_undo={props.enable_undo}
-            on_column_moved={props.on_column_moved}
-        />
+        { (!first_load && !loading && props.empty_wdg && data?.length === 0) ?
+            <div>
+                <EmptyWdg
+                    edit_modal_ref={edit_modal_ref}
+                    import_data_modal_ref={import_data_modal_ref}
+                />
+            </div>
+        :
+            <>
+            { !loading ?
+            <DataGrid
+                ref={grid_ref}
+                name={get_name()}
+                column_defs={column_defs}
+                data={data}
+                //suppress_click={true}
+                auto_height={props.auto_height}
+                height={props.height}
+                header_height={props.header_height}
+                row_height={props.row_height}
+                enable_undo={props.enable_undo}
+                on_column_moved={props.on_column_moved}
+                get_total_data={props.get_total_data}
+            />
+            :
+                <div>Loading ...</div>
+            }
+            </>
+        }
     </div>
     )
 
@@ -544,7 +695,7 @@ const TableLayoutActionMenu = props => {
 
     const open_edit_modal = () => {
         let selected = props.grid_ref.current.get_selected_nodes();
-        if (selected.length == 0) {
+        if (selected.length === 0) {
             alert("No items selected")
             return;
         }
@@ -632,6 +783,268 @@ const TableLayoutActionMenu = props => {
 
 
 
+const EditForm = React.forwardRef( (props, ref) => {
+
+    const [element_definitions, set_element_definitions] = useState(null);
+    const [element_names, set_element_names] = useState(null);
+
+    const [groups, set_groups] = useState({});
+    const [group_names, set_group_names] = useState({});
+
+
+
+    React.useImperativeHandle( ref, () => ({
+        get_config() {
+            return props.config;
+        },
+        get_sobject() {
+            return props.sobject;
+        },
+        validate() {
+            return validate();
+        }
+    } ) )
+
+    useEffect( () => {
+        init();
+    }, [props] )
+
+
+    const init = async () => {
+
+        // can override elements for edit
+        let element_names = props.edit_element_names;
+        if (!element_names) {
+            element_names = props.element_names;
+        }
+
+        let element_definitions = props.element_definitions;
+        if (!element_definitions) {
+            let config_handler = props.config_handler;
+            if (config_handler) {
+                element_definitions = await get_element_definitions(config_handler, props.extra_data);
+            }
+            else if (props.config) {
+                if (!element_names) {
+                    element_names = [];
+                    props.config.forEach( item => {
+                        element_names.push(item.name)
+                    } )
+                }
+                element_definitions = spt.react.Config(props.config, {});
+            }
+            else if (element_names) {
+                // If no config is given, create a default one
+                element_definitions = [];
+                element_names.forEach( element_name => {
+                    let definition = {
+                        field: element_name
+                    }
+                    element_definitions.push(definition);
+                } )
+            }
+            else {
+                return;
+            }
+        }
+
+        /*
+        element_names.forEach( element_name => {
+            let definition = props.config
+        } )
+        */
+        
+
+
+        let filtered = [];
+
+        // make sure all the element names have definitions
+        element_names.forEach( element_name => {
+            let definition = element_definitions[element_name];
+            if (!definition) {
+                definition = {};
+                element_definitions[element_name] = definition;
+            }
+            if (!definition.name) definition.name = element_name;
+            if (!definition.title) definition.title = Common.capitalize(definition.name);
+
+            if (definition.editable === true) {
+                filtered.push(element_name);
+            }
+        } )
+
+
+        if (props.sobject) {
+            element_names.forEach( element_name => {
+                let definition = element_definitions[element_name];
+                let column = element_name;
+                definition.value = props.sobject[column];
+                definition.sobject = props.sobject;
+            } )
+        }
+
+        set_element_names(filtered);
+        set_element_definitions(element_definitions);
+
+        // Group the definitions
+        let groups = {};
+        let group_names = [];
+        filtered.forEach( element_name => {
+            let definition = element_definitions[element_name];
+            let group_name = definition.group || Common.generate_key();
+            let group = groups[group_name];
+            if (!group) {
+                group = [];
+                groups[group_name] = group;
+                group_names.push(group_name);
+            }
+
+            if (typeof(definition.value) === "undefined") {
+                definition.value = null;
+            }
+
+            group.push(definition);
+        } )
+
+        set_groups(groups);
+        set_group_names(group_names);
+
+        //console.log("groups: ", groups, group_names)
+    }
+
+
+    /*
+    const load_data = async() => {
+
+        let cmd = props.get_cmd;
+        if (!cmd) {
+            alert("Get cmd is not defined");
+            return;
+        }
+        let kwargs = props.get_kwargs || {};
+        let config_handler = props.config_handler;
+
+        kwargs["config_handler"] = config_handler;
+
+        if (props.extra_data) {
+            Object.keys(props.extra_data).forEach( key => {
+                kwargs[key] = props.extra_data[key];
+            } )
+        }
+
+
+        let server = TACTIC.get();
+        server.p_execute_cmd(cmd, kwargs)
+        .then( ret => {
+            let data = ret.info;
+            set_data(data);
+
+        } )
+        .catch( e => {
+            alert("TACTIC ERROR: " + e);
+        } )
+    }
+    */
+
+
+    const get_element_definitions = async (cmd, kwargs) => {
+
+        if (!kwargs) {
+            kwargs = {};
+        }
+
+        let server = TACTIC.get();
+        let ret = await server.p_execute_cmd( cmd, kwargs )
+        let info = ret.info;
+        let config = info.config;
+
+        // convert to AGgrid definitions
+        let definitions = spt.react.Config(config, {});
+
+        return definitions;
+    }
+
+
+    const validate = () => {
+
+        let config = props.config;
+        if (!config) return true;
+
+        let sobject = props.sobject;
+        if (!sobject) return true;
+
+        let form_validated = true;
+
+        element_names.forEach( element_name => {
+            let definition = element_definitions[element_name];
+            if (definition.required === true) {
+                let key = definition.column || definition.name;
+                if (!sobject[key]) {
+                    form_validated = false;
+                    definition.helper = "ERROR";
+                    definition.error = true;
+                }
+            }
+
+        } )
+
+        set_element_names([...element_names]);
+
+        return form_validated;
+    }
+
+
+    let style = props.style;
+    if (!style) {
+        style = {
+            display: "flex",
+            flexDirection: "column",
+            gap: "20px",
+            margin: "30px 10px"
+        }
+    }
+
+
+    return (
+
+        <div className="spt_edit_form" style={style}>
+
+
+            { element_definitions && group_names?.map( (group_name, index) => (
+
+              <div className="spt_edit_form_row" style={{
+                  display: "flex", flexDirection: "row", gap: "10px"
+              }}>
+
+              { groups[group_name].map( (definition, index) => {
+
+                let editor = definition?.cellEditor;
+                if (editor === SelectEditor) {
+                    return ( <SelectEditorWdg key={index} onblur={props.onblur} onchange={props.onchange} {...definition}/>)
+                }
+                /*
+                else if (editor === "NotesEditor") {
+                    return ( <NotesEditorWdg key={index} onblur={props.onblur} onchange={props.onchange} {...definition}/>)
+                }
+                */
+                else if (editor === InputEditor) {
+                    return ( <InputEditorWdg key={index} onblur={props.onblur} onchange={props.onchange} {...definition}/>)
+                }
+                else {
+                    return ( <InputEditorWdg key={index} onblur={props.onblur} onchange={props.onchange} {...definition}/>)
+                }
+              } ) }
+
+              </div>
+            ) ) }
+
+
+        </div>
+
+    )
+} )
+
+
 
 
 
@@ -669,9 +1082,9 @@ const EditModal = React.forwardRef( (props, ref) => {
         let name = e.name;
         let value = e.target.value;
 
-        //console.log("name: ", name, value)
-
         item[name] = value;
+
+        if (props.onchange) { props.onchange(e) }
     }
 
 
@@ -706,50 +1119,8 @@ const EditModal = React.forwardRef( (props, ref) => {
               Enter the following data for {props.name}
             </DialogContentText>
 
-            <div style={{display: "flex", flexDirection: "column", gap: "20px", margin: "30px 10px"}}>
 
-                { props.element_names?.map( (element_name, index) => {
-
-                    let definition = props.element_definitions && props.element_definitions[element_name];
-                    if (!definition) definition = {};
-                    if (!definition.name) definition.name = element_name;
-                    if (!definition.title) definition.title = Common.capitalize(element_name);
-
-                    let editor = definition?.cellEditor;
-                    if (editor == SelectEditor) {
-                        return ( <SelectEditorWdg key={index} onchange={onchange} {...definition}/>)
-                    }
-                    else if (editor == "NotesEditor") {
-                        return ( <NotesEditorWdg key={index} onchange={onchange} {...definition}/>)
-                    }
-                    else if (editor == InputEditor) {
-                        return ( <InputEditorWdg key={index} onchange={onchange} {...definition}/>)
-                    }
-                    else {
-                        return ( <InputEditorWdg key={index} onchange={onchange} {...definition}/>)
-                    }
-
-
-                    // doesn't go here anymore
-
-                    return (
-                    <TextField
-                        key={index}
-                        label={Common.capitalize(element_name)}
-                        //required
-                        size="small"
-                        variant="outlined"
-                        defaultValue={item[element_name]}
-                        onChange={ e => {
-                            item[element_name] = e.target.value; 
-                        }}
-                    />
-                    )
-                } ) }
-
-
-            </div>
-
+            <EditForm {...props} sobject={item}/>
 
    
           </DialogContent>
@@ -831,15 +1202,13 @@ const DeleteModal = React.forwardRef( (props, ref) => {
             };
             server.p_execute_cmd(cmd, kwargs)
             .then( ret => {
-               alert("Deleted"); 
+                props.load_data();
             } )
             .catch( e => {
                 alert("TACTIC Error: " + e);
             } )
 
         }
-
-
 
 
         handleClose()
@@ -851,7 +1220,7 @@ const DeleteModal = React.forwardRef( (props, ref) => {
         <Dialog open={show} onClose={handleClose}
                 fullWidth={true}
                 maxWidth={"sm"}>
-          <DialogTitle>Delete</DialogTitle>
+          <DialogTitle>Delete Selected Items</DialogTitle>
           <DialogContent>
             <DialogContentText>
               <Alert severity="error">
@@ -859,8 +1228,10 @@ const DeleteModal = React.forwardRef( (props, ref) => {
               </Alert>
             </DialogContentText>
 
-            <div style={{display: "flex", flexDirection: "column", gap: "30px", margin: "30px 0px"}}>
-                <h1>Name</h1>
+            <div style={{display: "flex", flexDirection: "column", gap: "30px", margin: "30px 20px"}}>
+                { items.map( (item, index) => (
+                    <h3 key={index}>{item.data.name || ""}</h3>
+                ) ) }
             </div>
           </DialogContent>
           <DialogActions>
@@ -892,20 +1263,33 @@ class SelectEditor {
             open = false;
         }
 
+        let mode = params.mode || "select";
         let labels = params.labels || [];
         let values = params.values || [];
+        let helpers = params.helpers || [];
         let colors = params.colors || {};
+        let default_value = params.default_value || null;
 
-        if (typeof(labels) == "string") {
+        let onblur = params.onblur;
+
+        let error = params.error;
+
+        if (typeof(labels) === "string") {
             labels = labels.split("|")
         }
-        if (typeof(values) == "string") {
+        if (typeof(values) === "string") {
             values = values.split("|")
+        }
+        if (typeof(helpers) === "string") {
+            helpers = helpers.split("|")
         }
 
         let variant = params.variant || "standard";
         let label = params.label || "";
         let name = params.name;
+
+        let layout = params.layout || "column";
+
 
         let el_style;
         let style = {
@@ -928,13 +1312,102 @@ class SelectEditor {
 
         this.input = document.createElement("div")
         this.input.style.width = "100%";
-        this.input.style.border = "solid 1px green";
         this.root = ReactDOM.createRoot( this.input );
+
+
+        if (mode === "button") {
+            this.el = (
+            <div style={{display: "flex", flexDirection: layout, gap: "20px"}}>
+                { values.map( (value, index) => (
+                <div style={{width: "100%"}}>
+                    <Button key={index}
+                        variant={this.value === value ? "contained" : "outlined"}
+                        style={{
+                            border: error ? "solid 1px red" : "",
+                        }}
+                        fullWidth
+                        onClick={ e => {
+                            this.value = value;
+
+                            // Need to add this
+                            e.name = name;
+
+                            if (params.onchange) {
+                                params.onchange(e, this.value);
+                            }
+                        }}
+                    >
+                        <div style={{
+                            fontSize: "0.8rem",
+                        }}
+                        >{labels[index]}</div>
+                    </Button>
+                    { helpers.length > 0 &&
+                    <div style={{fontSize: "0.7rem", margin: "3px"}}>{ helpers[index] }</div>
+                    }
+                </div>
+                ) ) }
+            </div>
+            )
+            return;
+        }
+
+        else if (mode === "checkbox") {
+            //Default to not checked
+            if (this.value === null) {
+                this.value = values[1];
+            }
+
+            this.el = (
+                <div style={{display: "flex", flexDirection: layout, gap: "20px"}}>
+                    <div style={{width: "100%", display: "flex", alignItems: "center"}}>
+                        <Checkbox
+                            checked={this.value === values[0]}
+                            onChange={ e => {
+                                if (this.value === values[0]){
+                                    this.value = values[1];
+                                }
+                                else if (this.value === values[1]){
+                                    this.value = values[0];
+                                }
+                                // Need to add this
+                                e.name = name;
+        
+                                if (params.onchange) {
+                                    params.onchange(e, this.value);
+                                }
+                            }}
+                            style={{
+                                cursor: "pointer",
+                                alignSelf: "flex-start"
+                            }}
+                        />
+                        <div style={{
+                            fontSize: "0.8rem",
+                            textAlign: "center",
+                        }}>{labels[0]}</div>
+                    </div>
+                </div>
+            )
+            return;
+            
+        }
+
+
+        if (this.value === null) {
+            //return;
+        }
+
+
+        let value = this.value || default_value || values[0] || "";
+        this.value = value || "" // set this if it is using the first value
+
         this.el = (
+            <>
             <TextField
                 label={label}
                 variant={variant}
-                defaultValue={this.value}
+                defaultValue={value}
                 size="small"
                 select
                 style={style}
@@ -942,6 +1415,10 @@ class SelectEditor {
                     defaultOpen: open,
                     style: el_style,
                 }}
+                onBlur={ e => { 
+                    e.name = name;
+                    if (onblur) { onblur(e) }
+                } }
                 onChange={ e => {
                     this.value = e.target.value;
 
@@ -949,19 +1426,21 @@ class SelectEditor {
                     e.name = name;
 
                     if (params.onchange) {
-                        params.onchange(e);
+                        params.onchange(e, this.value);
                     }
-                    params.api.stopEditing();
+                    if (params.api?.stopEditing) {
+                        params.api.stopEditing();
+                    }
                 }}
                 onKeyUp={ e => {
-                    if (e.key == 13) {
+                    if (e.key === 13) {
                         params.api.stopEditing();
                         params.api.tabToNextCell();
                     }
                 }}
             >
-                { values.map( (value, index) => (
-                    <MenuItem key={index} value={value}>
+                { values.map( (v, index) => (
+                    <MenuItem key={index} value={v}>
                         <div style={{
                             fontSize: "0.8rem",
                         }}
@@ -969,6 +1448,7 @@ class SelectEditor {
                     </MenuItem>
                 ) ) }
             </TextField>
+            </>
         );
 
     }
@@ -1012,30 +1492,100 @@ class SelectEditor {
 
 
 const SelectEditorWdg = (props) => {
-    let cellEditorParams = props.cellEditorParams || {};
-    let label = props.label || props.field;
-    label = Common.capitalize(label);
 
-    let name = props.name;
+    const [value, set_value] = useState();
+    const [label, set_label] = useState();
+    const [el, set_el] = useState();
 
-    let props2 = {
-        is_form: true,
-        name: name,
-        label: "",
-        variant: "outlined",
-        values: cellEditorParams.values || [],
-        labels: cellEditorParams.labels || [],
-        onchange: props.onchange,
+    const [ignored, forceUpdate] = useReducer(x => x + 1, 0);
+
+    useEffect( () => {
+
+        let value = props.value;
+        set_value(value);
+
+        let label = props.headerName || props.label || props.title;
+        if (label === null || typeof(label) === "undefined") {
+            label = props.field;
+        }
+        label = Common.capitalize(label);
+        set_label(label);
+
+    }, [] );
+
+
+    useEffect( () => {
+        if (!props.error) {
+            return
+        }
+
+        init();
+    }, [props.error] );
+
+
+    useEffect( () => {
+        if (typeof(value) === "undefined") return
+
+        init();
+    }, [value] );
+
+
+
+
+    const init = () => {
+
+        let name = props.name;
+        let mode = props.mode;
+
+        let cellEditorParams = props.cellEditorParams || {};
+
+        let props2 = {
+            is_form: true,
+            name: name,
+            label: "",
+            variant: "outlined",
+
+            values: cellEditorParams.values || [],
+            labels: cellEditorParams.labels || [],
+            helpers: cellEditorParams.helpers || [],
+
+            layout: props.layout,
+
+            onchange: (e, new_value) => {
+                set_value(new_value);
+                if (props.onchange) {
+                    props.onchange(e, new_value);
+                }
+                if (props.sobject) {
+                    props.sobject[name] = new_value;
+                }
+            },
+            onblur: props.onblur,
+            value: value,
+            mode: mode,
+            error: props.error,
+        }
+
+        let select = new SelectEditor()
+        select.init(props2);
+        let el = select.getEl();
+        set_el(el);
+        forceUpdate();
+
     }
 
-    let select = new SelectEditor()
-    select.init(props2);
-    let el = select.getEl();
 
     return (
-        <div>
-            <div>{label}</div>
-            <div>{el}</div>
+        <div style={{width: "100%"}}>
+            { props.show_title !== false &&
+            <div className="spt_form_label">{label} {props.required === true ? "*" : ""}</div>
+            }
+            { el &&
+            <div className="spt_form_input">{el}</div>
+            }
+            { props.helper &&
+                <div>{props.helper}</div>
+            }
         </div>
  
     );
@@ -1054,6 +1604,11 @@ class InputEditor {
         let variant = params.variant || "standard";
         let name = params.name;
         let label = params.label || "";
+        let rows = params.rows || 1;
+        let helper = params.helper;
+        let error = params.error;
+
+        let onblur = params.onblur;
 
         let is_form = params.is_form;
         let el_style;
@@ -1062,7 +1617,7 @@ class InputEditor {
             height: "100%",
         }
         if (!is_form) {
-            if (mode == "color") {
+            if (mode === "color") {
             }
             else {
                 el_style = {
@@ -1073,31 +1628,53 @@ class InputEditor {
                     boxSizing: "border-box",
                 }
                 style.padding = "0px 15px";
-                style.width = "max-width";
+                style.width = "100%";
+                style.lineHeight = "1.1rem";
+
+                if (this.mode === "date") {
+                    style.marginTop = "-4px"
+                }
+                else {
+                    style.marginTop = "2px"
+                }
             }
         }
         else {
-            el_style = {};
+            el_style = {
+            };
         }
+
+        if (mode === "date" && this.value) {
+            this.value = this.value.split(" ")[0];
+        }
+
+
+        const ThisTextInput = rows > 1 ? TextareaAutosize : TextField;
 
         this.input = document.createElement("div")
         this.input.style.width = "100%";
-        this.input.style.border = "solid 1px green";
+        this.input.style.height = "100%";
         this.root = ReactDOM.createRoot( this.input );
         this.el = (
-                <TextField
+                <ThisTextInput
                     label={label}
                     variant={variant}
                     defaultValue={this.value}
+                    multiline={rows > 1 ? true : false}
+                    error={error}
+                    helperText={helper}
+                    minRows={rows}
+                    //rows={rows}
                     fullWidth
                     size="small"
                     type={mode}
                     style={style}
-                    InputProps={{ disableUnderline: true }}
+                    InputProps={{ disableUnderline: "true" }}
                     inputProps={{
                         className: "input",
-                        style: el_style
+                        style: el_style,
                     }}
+                    sx={{ width: "100%", height: '100%' }}
                     onChange={ e => {
                         this.value = e.target.value;
 
@@ -1105,25 +1682,30 @@ class InputEditor {
                         e.name = name;
 
                         if (params.onchange) {
-                            params.onchange(e);
+                            params.onchange(e, this.value);
                         }
 
                     }}
                     onBlur={ e => {
-                        params.api.stopEditing();
+                        e.name = name;
+                        if (onblur) { onblur(e) }
+
+                        if (params.api?.stopEditing) {
+                            params.api.stopEditing();
+                        }
                     } }
                     onKeyUp={ e => {
                         this.value = e.target.value;
-                        if (e.code == "Tab" && params.api) {
+                        if (e.code === "Tab" && params.api) {
                             params.api.tabToNextCell();
                         }
-                        else if (e.code == "Enter" && params.api) {
+                        else if (e.code === "Enter" && params.api) {
                             params.api.stopEditing();
                         }
                     }}
  
                 >
-                </TextField>
+                </ThisTextInput>
         );
 
     }
@@ -1140,7 +1722,7 @@ class InputEditor {
 
     // the final value to send to the grid, on completion of editing
     getValue() {
-        if (this.mode == "date") {
+        if (this.mode === "date") {
             this.value = Date.parse(this.value);
         }
         return this.value;
@@ -1153,6 +1735,7 @@ class InputEditor {
         setTimeout( () => {
             let x = document.id(this.input);
             let input = x.getElement(".input");
+            input.select();
             input.focus();
             //input.click();
         }, 250 );
@@ -1163,17 +1746,35 @@ class InputEditor {
 
 
 const InputEditorWdg = (props) => {
+
+    const [value, set_value] = useState();
+
     let cellEditorParams = props.cellEditorParams || {};
-    let label = props.label || props.field || props.name;
+    let label = props.label || props.headerName || props.field || props.name;
     label = Common.capitalize(label);
 
     let props2 = {
         is_form: true,
         name: props.name,
         label: "",
+        rows: props.rows,
         variant: "outlined",
         mode: cellEditorParams.mode,
-        onchange: props.onchange
+        onblur: props.onblur,
+        onchange: (e, new_value) => {
+            set_value(new_value);
+
+            if (props.sobject) {
+                props.sobject[props.name] = new_value;
+            }
+
+            if (props.onchange) {
+                props.onchange(e, new_value)
+            }
+        },
+        value: props.value,
+        helper: props.helper,
+        error: props.error,
     }
 
     let input = new InputEditor();
@@ -1181,9 +1782,9 @@ const InputEditorWdg = (props) => {
     let el = input.getEl();
 
     return (
-        <div>
-            <div>{label}</div>
-            <div>{el}</div>
+        <div style={{width: "100%"}}>
+            <div className="spt_form_label">{label}{props.required === true ? " *" : ""}</div>
+            <div className="spt_form_input">{el}</div>
         </div>
     );
 }
@@ -1195,16 +1796,17 @@ const SimpleCellRenderer = (params) => {
     let value = params.value;
     let label = value;
     let onClick = params.onClick;
+    let onclick = params.onclick;
     let mode = params.mode;
 
     let renderer = params.renderer;
     let editable = params.colDef.editable;
 
-    if (label == null) {
+    if (label === null) {
         label = "";
     }
 
-    if (mode == "date") {
+    if (mode === "date") {
         try {
             let date = Date.parse(value);
             let day = date.getDate() + "";
@@ -1217,10 +1819,17 @@ const SimpleCellRenderer = (params) => {
         }
 
     }
-    else if (mode == "%") {
+    else if (mode === "%") {
         try {
-            let display_value = value * 100;
-            label = display_value + "%";
+            if (!value) label = "";
+            else {
+                if (typeof(value) === "string") {
+                    value = parseFloat( value.replace(/\D/g,''));
+                    value = value / 100;
+                }
+                let display_value = value * 100;
+                label = display_value + "%";
+            }
         }
         catch(e) {
             label = "";
@@ -1228,7 +1837,7 @@ const SimpleCellRenderer = (params) => {
 
     }
 
-    else if (mode == "$") {
+    else if (mode === "$") {
 
         function numberWithCommasAndDecimals(x) {
             const parts = x.toString().split(".");
@@ -1246,11 +1855,11 @@ const SimpleCellRenderer = (params) => {
 
 
     else {
-        let values = params.values;
-        if (values != null) {
+        let values = params.values || [];
+        if (values !== null) {
             let labels = params.labels;
             let index = values.indexOf(value);
-            if (index != -1) {
+            if (index !== -1) {
                 label = labels[index];
             }
         }
@@ -1274,12 +1883,19 @@ const SimpleCellRenderer = (params) => {
         el.appendChild(inner);
         inner.style.width = "100%";
         inner.style.height = "100%";
-        inner.style.padding = "0px 3px";
 
         inner.style.whiteSpace = "normal";
 
+        if (params.rows > 1) {
+            inner.style.lineHeight = "1.1rem";
+            inner.style.padding = "3px 3px";
+        }
+        else {
+            inner.style.padding = "0px 3px";
+        }
+
         // if the mode is color, the set the background color
-        if (params.mode == "color") {
+        if (params.mode === "color") {
             inner.style.background = value;
         }
 
@@ -1289,21 +1905,18 @@ const SimpleCellRenderer = (params) => {
         }
 
 
-        if (typeof(value) != "undefined") {
+        if (label === "") label = "";
+        inner.appendChild( document.createTextNode(label) );
+        if (onClick || onclick) {
+            inner.style.textDecoration = "underline";
+            inner.style.cursor = "pointer";
 
-            inner.appendChild( document.createTextNode(label) );
-            if (onClick) {
-                inner.style.textDecoration = "underline";
-                inner.style.cursor = "pointer";
-
-                // provide a link
-                inner.addEventListener( "click", e => {
-                    onClick(params);
-                } )
-            }
-
+            // provide a link
+            inner.addEventListener( "click", e => {
+                if (onclick) onclick(params);
+                if (onClick) onClick(params);
+            } )
         }
-
     }
 
 
@@ -1320,16 +1933,16 @@ const SimpleCellRenderer = (params) => {
         icon.style.position = "absolute";
         icon.style.opacity = 0.4;
         icon.style.right = "-5px";
-        icon.style.top = "-3px";
+        icon.style.top = "0px";
         icon.style.fontSize = "0.8rem";
 
         icon.addEventListener( "click", e => {
-            //params.show_notes();
             params.api.startEditingCell({
                 rowIndex: params.rowIndex,
                 colKey: params.colDef.field,
             });
             e.stopPropagation();
+
         } );
         el.addEventListener( "mouseenter", e => {
             icon.style.display = "";
@@ -1418,8 +2031,13 @@ const ColumnManagerMenu = React.forwardRef( (props, ref) => {
     const column_handle_select = async (column) => {
         //column_setAnchorEl(null);
         let index = props.columns.indexOf(column);
-        if (index == -1) {
-            props.columns.push(column);
+        if (index === -1) {
+            if (props.on_column_add) {
+                props.on_column_add( { column: column, columns: props.columns } )
+            }
+            else {
+                props.columns.push(column);
+            }
         }
         else {
             props.columns.splice(index,1)
@@ -1453,6 +2071,8 @@ const ColumnManagerMenu = React.forwardRef( (props, ref) => {
                 'aria-labelledby': 'column-menu',
               }}
             >
+                { false &&
+                <>
                 <MenuItem
                     value={"custom"}
                     onClick={e => {
@@ -1464,6 +2084,11 @@ const ColumnManagerMenu = React.forwardRef( (props, ref) => {
                         height: "40px"
                     }}
                 >Custom</MenuItem>
+                <hr/>
+                </>
+                }
+
+                <div style={{fontSize: "1.2rem", margin: "10px 15px"}}>Column Manager</div>
                 <hr/>
 
 
@@ -1565,6 +2190,7 @@ const ColumnCreateModal = React.forwardRef( (props, ref) => {
 
 // Store this
 spt.react.TableLayout = TableLayout;
+spt.react.EditForm = EditForm;
 spt.react.EditModal = EditModal;
 spt.react.SelectEditor = SelectEditor;
 spt.react.InputEditor = InputEditor;

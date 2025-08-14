@@ -134,7 +134,6 @@ class NewPasswordCmd(Command):
 
         if password == confirm_password:
             code = web.get_form_value('code')
-            #print("code:", code) #markmark
 
             if login:
                 data = login.get_json_value('data')
@@ -413,31 +412,50 @@ class SendPasswordResetCmd(Command):
         # send the email
         try:
             from pyasm.command import EmailTriggerTestCmd
+            from pyasm.biz import ProjectSetting, Project
+            from pyasm.common import Config
+            from pyasm.security import Sudo
 
+            sudo = Sudo()
+            try: 
+                # if the project is default or admin, we are not going to set it
+                # from web context.
+                if Project.get_project_code() in ['default', 'admin']:
+                    current_project = WebContainer.get_web().get_context_name()
+                    Project.set_project(current_project)
+                application = ProjectSetting.get_value_by_key("application")
+                sender_email = ProjectSetting.get_value_by_key("mail_user") 
+            finally:
+                sudo.exit()
+                
+            if not application:
+                application = "TACTIC"
+
+            if not sender_email:
+                sender_email = Config.get_value("services", "mail_default_admin_email")
+            if not sender_email:
+                sender_email = Config.get_value("services", "mail_user")
             admin = Login.get_by_login('admin')
-            if admin:
-                sender_email = admin.get_full_email()
-                if not sender_email:
-                    from pyasm.common import Config
-                    sender_email = Config.get_value("services", "mail_default_admin_email")
-                if not sender_email:
-                    sender_email = Config.get_value("services", "mail_user")
+            if admin and not sender_email:
+                sender_email = admin.get_value("email")
+                
             recipient_emails = [email]
 
             url = self.kwargs.get("project_url")
             if not url:
                 url = WebContainer.get_web().get_project_url()
 
+            ongoing_url = url.to_string()
             url.set_option("reset_password", "true")
             url.set_option("login", self.login)
             url.set_option("code", auto_password)
             url = url.to_string()
             if reset:
-                email_msg = 'Your TACTIC password reset code is:\n\n%s\n\nYou may use the following URL to set a new password:\n\n%s' % (auto_password, url)
-                subject = 'TACTIC password change'
+                email_msg = 'Your %s password reset code is:\n\n%s\n\nYou may use the following URL to set a new password:\n\n%s' % (application, auto_password, url)
+                subject = '%s password change' % (application)
             else:
-                email_msg = "You've been invited to a TACTIC project. Your user name is [%s]. Visit the following URL to set a password: \n\n%s" % (upn, url)
-                subject = 'TACTIC project invitation'
+                email_msg = "Welcome to %s. Your user name is [%s]. Visit the following URL to set a password. Password will expire after 90 days. \n\nPassword Requirements: \n- Can't be identical to User ID. \n- Must contain at least one number. \n- Must contain at least one uppercase and one lowercase character. \n- Must contain at least one special symbol. \n- Must be a minimum of 8 characters long. \n\n This password setup link is for one-time use only: \n%s \n\nFor ongoing access use the following URL: \n%s" % (application, upn, url, ongoing_url)
+                subject = '%s invitation' % (application)
             email_cmd = EmailTriggerTestCmd(sender_email=sender_email, recipient_emails=recipient_emails, msg= email_msg, subject=subject)
 
             data = login.get_json_value("data", default={})

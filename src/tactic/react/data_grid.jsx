@@ -1,21 +1,9 @@
-/*
-import { useState } from "react";
-import { useEffect } from "react";
-import { useReducer } from 'react';
-import { useRef } from 'react';
-*/
 let useEffect = React.useEffect;
 let useState = React.useState;
 
-const Common = spt.react.Common;
-
-//const DataGrid = (props) => {
 const DataGrid = React.forwardRef( (props, ref) => {
 
     React.useImperativeHandle( ref, () => ({
-        add_filter(filter) {
-            add_filter(filter);
-        },
         select_all() {
             select_all();
         },
@@ -64,11 +52,27 @@ const DataGrid = React.forwardRef( (props, ref) => {
         export_csv(params) {
             export_csv(params);
         },
+        get_csv(params) {
+            return get_csv(params);
+        },
+
+
+        get_display_data(params) {
+            return get_display_data(params);
+        },
+
+
         set_data(data) {
             set_data(data);
         },
         get_data() {
             return data;
+        },
+
+        show_total() {
+            _show_total({
+                api: api
+            });
         }
 
     }))
@@ -79,11 +83,9 @@ const DataGrid = React.forwardRef( (props, ref) => {
     const [grid_name, set_grid_name] = useState(null);
     const [grid_options, set_grid_options] = useState(null);
 
-    const [onselect, set_onselect] = useState(null);
-
     const [data, set_data] = useState([]);
-
-
+    const [column_defs, set_column_defs] = useState(null);
+    const [group_by, set_group_by] = useState("");
 
 
     const add_filter = filter => {
@@ -94,44 +96,79 @@ const DataGrid = React.forwardRef( (props, ref) => {
 
     const get_filter = (column) => {
         // Get a reference to the filter instance
+        /*
         const filterInstance = api.getFilterInstance(column);
         let model = filterInstance.getModel();
+        */
+        if (!api) {
+            return null;
+        }
+
+        let model = api.getFilterModel();
         return model;
     }
 
 
     const set_filter = (column, options) => {
-
-        // Get a reference to the filter instance
-        const filterInstance = api.getFilterInstance(column);
-
-        if (options.conditions) {
-            // Assume it is a full model
-            filterInstance.setModel(options);
+        if (!api) {
+            setTimeout( () => {
+                set_filter(column, options);
+            }, 200 );
             return;
         }
 
-        if (typeof options == "string") {
-            options = {
-                filter: options
+        _set_filter(column, options);
+    }
+
+    const _set_filter = (column, options) => {
+
+        // Get a reference to the filter instance
+        //const filterInstance = api.getFilterInstance(column);
+
+        if (options.model) {
+            // Assume it is a full model
+            //filterInstance.setModel(options);
+            api.setFilterModel(options.model);
+        }
+        else {
+
+            if (typeOf(options) === "string") {
+                options = {
+                    filter: options
+                }
+
+                if (!options.filterType) {
+                    options.filterType = "text"
+                }
+
+                if (!options.type) {
+                    options.type = "startsWith"
+                }
+
             }
-        }
+            else if (options instanceof Array) {
+                let conditions = [];
+                options.forEach( option => {
+                    let condition = { type: "contains", filter: option }
+                    conditions.push(condition)
+                } )
+                options = {
+                    filterType: "text",
+                    operator: "OR",
+                    conditions: conditions
+                }
+            }
 
-        if (!options.filterType) {
-            options.filterType = "text"
+            // Set the filter model
+            /*
+                filterType: 'text',
+                type: 'startsWith',
+                filter: 'Animator',
+            */
+            let model = {};
+            model[column] = options;
+            api.setFilterModel(model);
         }
-
-        if (!options.type) {
-            options.type = "startsWith"
-        }
-
-        // Set the filter model
-        /*
-            filterType: 'text',
-            type: 'startsWith',
-            filter: 'Animator',
-        */
-        filterInstance.setModel(options);
 
         // Tell grid to run filter operation again
         api.onFilterChanged();
@@ -155,13 +192,13 @@ const DataGrid = React.forwardRef( (props, ref) => {
 
     const get_filtered_nodes = () => {
         let all_nodes = [];
-        api.forEachNodeAfterFilter((rowNode) => all_nodes.push(rowNode));
+        api?.forEachNodeAfterFilter((rowNode) => all_nodes.push(rowNode));
         return all_nodes;
     }
 
     const get_filtered_rows = () => {
         let all_rows = [];
-        grid_options?.api.forEachNodeAfterFilter((rowNode) => all_rows.push(rowNode.data));
+        api?.forEachNodeAfterFilter((rowNode) => all_rows.push(rowNode.data));
         return all_rows;
     }
 
@@ -187,21 +224,73 @@ const DataGrid = React.forwardRef( (props, ref) => {
                 let column = cell.column.colId;
                 try {
                     let parts = column.split("-");
-                    if (parts.length != 3) {
+                    if (parts.length !== 3) {
                         throw("Not a date");
                     }
-                    let date = Date.parse(column);
+                    //let date = Date.parse(column);
                     return column;
                 }
                 catch(e) {
                     // return display name
-                    return cell.columnApi.getDisplayNameForColumn(cell.column, null);
+                    return api.getDisplayNameForColumn(cell.column, null);
                 }
             }
         }
 
         api.exportDataAsCsv(params);
     }
+
+    const get_csv = (params) => {
+
+        if (!params) {
+            params = {};
+        }
+
+        if (!params.processHeaderCallback) {
+            params.processHeaderCallback = (cell) => {
+                let column = cell.column.colId;
+                try {
+                    let parts = column.split("-");
+                    if (parts.length !== 3) {
+                        throw("Not a date");
+                    }
+                    //let date = Date.parse(column);
+                    return column;
+                }
+                catch(e) {
+                    // return display name
+                    return api.getDisplayNameForColumn(cell.column, null);
+                }
+            }
+        }
+
+        return api.getDataAsCsv(params);
+    }
+
+
+
+    const get_display_data = params => {
+
+        let columns = api.getAllDisplayedColumns();
+
+        // Get all row data from the grid
+        let display_data = [];
+        api?.forEachNodeAfterFilter( row_node => {
+
+            let row_display_data = {};
+            display_data.push(row_display_data);
+
+            columns.forEach( column => {
+                let column_name = column.colDef.headerName;
+                if (!column_name) return;
+                let value = api.getValue(column.colId, row_node);
+                row_display_data[column_name] = value;
+            });
+        });
+
+        return display_data;
+    }
+
 
 
 
@@ -253,8 +342,8 @@ const DataGrid = React.forwardRef( (props, ref) => {
 
 
     const clear_sort = () => {
-        let column_api = grid_options.columnApi;
-        return column_api.applyColumnState( {
+        //let column_api = grid_options.columnApi;
+        return api.applyColumnState( {
             defaultState: { sort: null }
         } )
 
@@ -264,40 +353,21 @@ const DataGrid = React.forwardRef( (props, ref) => {
 
 
 
-    // TEST TEST
     const _show_total = (params) => {
         if (!props.show_total && !props.get_total_data) return;
 
+        if (!params.api) return;
+
 
         let pinned;
-        // These should be removed
-        if  (props.show_total == "cost") {
-            setTimeout( () => {
-                pinned = generate_pinned_data(params)
-                params.api.setPinnedTopRowData( [pinned]  );
-            }, 0 )
-        }
-        else if (props.show_total == "role") {
-            setTimeout( () => {
-                pinned = generate_pinned_data2(params)
-                params.api.setPinnedTopRowData( [pinned]  );
-            } )
-        }
-        else if (props.show_total == "work_hour") {
-            setTimeout( () => {
-                pinned = generate_pinned_data2(params)
-                params.api.setPinnedTopRowData( [pinned]  );
-            } )
-        }
 
-
-        else if (props.get_total_data) {
+        if (props.get_total_data) {
 
             let columns = [];
             params.api.getAllGridColumns().forEach(item => {
                 let column = item.colId;
                 let parts = column.split("-");
-                if (parts.length == 3) {
+                if (parts.length === 3) {
                     columns.push(column);
                 }
             });
@@ -309,15 +379,18 @@ const DataGrid = React.forwardRef( (props, ref) => {
 
                 if (pinned) {
                     if (Array.isArray(pinned) ) {
-                        params.api.setPinnedTopRowData( pinned  );
+                        //params.api.setPinnedTopRowData( pinned  );
+                        params.api.setGridOption("pinnedTopRowData", pinned);
                     }
                     else {
-                        params.api.setPinnedTopRowData( [pinned]  );
+                        //params.api.setPinnedTopRowData( [pinned]  );
+                        params.api.setGridOption("pinnedTopRowData", [pinned]);
                     }
                 }
                 else {
                     alert("ERROR: pinned data is undefined")
                 }
+
             }, 0 )
         }
 
@@ -326,9 +399,7 @@ const DataGrid = React.forwardRef( (props, ref) => {
     const on_grid_ready = (params) => { _show_total(params); }
     const on_filter_changed = (params) => { _show_total(params); }
     const on_cell_clicked = (params) => { _show_total(params); }
-
-
-
+    const on_first_data_rendered = (params) => { _show_total(params); }
 
 
 
@@ -339,11 +410,11 @@ const DataGrid = React.forwardRef( (props, ref) => {
 
         let pagination = true;
         let pagination_size = props.pagination_size || 10000;
-        if (props.pagination != null) {
+        if (props.pagination !== null) {
             pagination = props.pagination;
         }
         else {
-            pagination: props.auto_height ? false : true;
+            pagination = props.auto_height ? false : true;
         }
 
 
@@ -359,7 +430,7 @@ const DataGrid = React.forwardRef( (props, ref) => {
               filter: true,
               filterParams: {
                   "maxNumConditions": 10,
-                  "numAlwaysVisibleConiions": 2,
+                  "numAlwaysVisibleConditions": 2,
               }
           },
 
@@ -371,19 +442,20 @@ const DataGrid = React.forwardRef( (props, ref) => {
           paginationPageSize: pagination_size,
           //pagination: props.auto_height ? false : false,
 
+          // Speed optimization
+          suppressColumnVirtualisation: false,
 
           onGridReady: on_grid_ready,
           onFilterChanged: on_filter_changed,
           onCellClicked: on_cell_clicked,
+          onFirstDataRendered: on_first_data_rendered,
 
-          singleClickEdit: props.single_click == true ? true : false,
-          suppressClickEdit: props.suppress_click == true ? true : false,
+          singleClickEdit: props.single_click === true ? true : false,
+          suppressClickEdit: props.suppress_click === true ? true : false,
           suppressRowClickSelection: true,
 
           suppressDragLeaveHidesColumns: true,
-          onColumnVisible: e => {
-              //console.log("e: ", e)
-          },
+          onColumnVisible: e => {},
 
 
           getRowStyle: get_row_style,
@@ -394,7 +466,7 @@ const DataGrid = React.forwardRef( (props, ref) => {
 
 
           // while this is the behvaior we want, it does not behave well with selects
-          stopEditingWhenCellsLoseFocus: props.click_off == true ? true : false,
+          stopEditingWhenCellsLoseFocus: props.click_off === true ? true : false,
         
           groupHeaderHeight: 20,
 
@@ -402,7 +474,6 @@ const DataGrid = React.forwardRef( (props, ref) => {
 
         };
 
-        
         if (props.enable_undo || props.on_undo) {
             gridOptions.undoRedoCellEditing = true;
             gridOptions.undoRedoCellEditingLimit = 20;
@@ -441,6 +512,7 @@ const DataGrid = React.forwardRef( (props, ref) => {
         if (props.filter) {
             gridOptions["isExternalFilterPresent"] = () => {return true};
             gridOptions["doesExternalFilterPass"] = props.filter;
+            gridOptions.cacheQuickFilter = false;
         }
 
         if (props.show_full_header) {
@@ -461,25 +533,32 @@ const DataGrid = React.forwardRef( (props, ref) => {
         }
 
 
+        // Add grouping
+        add_grouping(gridOptions);
+
+        if (props.on_column_moved) {
+            gridOptions.onColumnMoved = props.on_column_moved;
+        }
+
+
 
         set_grid_options(gridOptions);
-        set_api( gridOptions.api );
 
-
-        set_loading(false);
+        //set_api( gridOptions.api );
 
     }, [] );
+
 
 
     useEffect( () => {
         if (!grid_options) return;
         if (!grid_name) return;
 
-
         grid_options.onSelectionChanged = on_selection_changed;
 
         // get div to host the grid
         const eGridDiv = document.getElementById(grid_name);
+        eGridDiv.innerHTML = "";
         // new grid instance, passing in the hosting DIV and Grid Options
         //let grid = new agGrid.Grid(eGridDiv, grid_options);
         let api = agGrid.createGrid(eGridDiv, grid_options);
@@ -499,9 +578,9 @@ const DataGrid = React.forwardRef( (props, ref) => {
             /*
             // Custom comparator that sorts header rows separately
             function customComparator(valueA, valueB, nodeA, nodeB) {
-              if (nodeA.data.__type__ == "group" && !nodeB.data.__type__ == "group") {
+              if (nodeA.data.__type__ === "group" && !nodeB.data.__type__ === "group") {
                 return -1; // Always sort header rows first
-              } else if (!nodeA.data.__type__ == "group" && nodeB.data.__type__ == "group") {
+              } else if (!nodeA.data.__type__ === "group" && nodeB.data.__type__ === "group") {
                 return 1; // Always sort non-header rows last
               } else {
                 // Normal comparison logic
@@ -525,21 +604,98 @@ const DataGrid = React.forwardRef( (props, ref) => {
 
         }
 
-
-        if (props.data != data) {
+        /*
+        if (props.data !== data) {
             let data = props.data;
-            api.setRowData(data);
+            //api.setRowData(data);
+            api.setGridOption('rowData', data)
             set_data(data);
         }
+        */
 
-        // Add grouping
-        add_grouping(grid_options);
-
-        if (props.on_column_moved) {
-            grid_options.onColumnMoved = props.on_column_moved;
-        }
 
     }, [grid_name, grid_options] );
+
+
+
+
+    useEffect( () => {
+
+        if (!grid_options) return;
+        if (!api) return;
+
+
+        if (props.row_height) {
+            api.setGridOption("rowHeight", props.row_height);
+            //grid_options["rowHeight"] = props.row_height;
+        }
+
+
+
+        if (props.column_defs && props.column_defs !== column_defs) {
+            api.setGridOption("columnDefs", props.column_defs);
+            set_column_defs(props.column_defs);
+        }
+
+
+
+        if (props.data && (props.data !== data || props.group_by !== group_by)) {
+            let data = props.data;
+            set_data(data);
+
+            if (props.group_by) {
+                if (props.group_by !== group_by) {
+                    grid_options["group_by"] = props.group_by;
+
+                    // Find the sorted column(s)
+                    let columnState = api.columnModel.getColumnState();
+                    let sortedColumns = columnState.filter(column => column.sort !== null);
+                    if (sortedColumns.length > 0) {
+                        // let event handle the grouping
+                        clear_filters();
+                        clear_sort();
+                        let options = {
+                            order_list: props.order_list,
+                            sort_column: sortedColumns[0].colId,
+                        }
+                        data = group_data(props.data, props.group_by, options);
+                        api.setGridOption('rowData', data)
+     
+                    }
+                    else {
+                        let options = {
+                            order_list: props.order_list
+                        }
+                        data = group_data(props.data, props.group_by, options);
+                        api.setGridOption('rowData', data)
+                    }
+                }
+                else {
+                    let options = {
+                        order_list: props.order_list
+                    }
+                    data = group_data(props.data, props.group_by, options);
+                    api.setGridOption('rowData', data)
+                }
+            }
+            else {
+                grid_options["group_by"] = "";
+                api.setGridOption('rowData', data)
+            }
+            set_group_by(props.group_by);
+
+        }
+
+        set_loading(false);
+
+    }, [props.column_defs, props.data, props.group_by, props.row_height, api] )
+
+
+
+
+
+
+
 
 
 
@@ -550,12 +706,12 @@ const DataGrid = React.forwardRef( (props, ref) => {
             css = props.get_row_style(params) || {};
         }
 
-        if (params.data.__type__ == "group") {
-            css["background"] = params.data.__background__ || "#CCC";
+        if (params.data.__type__ === "group") {
+            css["background"] = params.data.__background__ || "#DDD";
             css["color"] = params.data.__color__ || "#000";
         }
 
-        if (params.data.__isVisible__ == false) {
+        if (params.data.__isVisible__ === false) {
             css["display"] = "none";
         }
         else {
@@ -566,7 +722,7 @@ const DataGrid = React.forwardRef( (props, ref) => {
     }
 
     const get_row_height = params => {
-        if (params.data.__isVisible__ == false) {
+        if (params.data.__isVisible__ === false) {
             return 0;
         }
 
@@ -576,18 +732,26 @@ const DataGrid = React.forwardRef( (props, ref) => {
     const add_grouping = (grid_options) => {
 
         // Event listener for when the filter is changed
-        grid_options.onFilterChanged = event => {
+        //grid_options.onFilterChanged = event => {
+        //};
+
+        /*
+        grid_options.isExternalFilterPresent = () => {
+            return true;
         };
+        grid_options.doesExternalFilterPass = node => {
+            if (node.data.__type__ === "group") return true;
+        }
+        */
 
 
         // Event listener for when the sort order is changed
         grid_options.onSortChanged = event => {
-
             var rowData = [];
 
             // remove all groups
             event.api.forEachNode(function(node) {
-                if (node.data.__type__ == 'group') {
+                if (node.data.__type__ === 'group') {
                     return;
                 }
                 rowData.push(node.data);
@@ -595,17 +759,19 @@ const DataGrid = React.forwardRef( (props, ref) => {
 
 
             //let columnState = grid_options.columnApi.getColumnState();
-            let columnState = api.columnModel.getColumnState();
+            let columnState = event.api.getColumnState();
             let sortedColumns = columnState.filter(column => column.sort !== null);
-            if (sortedColumns.length == 0) {
-                if (grid_options.group_by != "") {
+            if (sortedColumns.length === 0) {
+                if (grid_options.group_by !== "") {
                     // group all the data
                     rowData = group_data(rowData, grid_options.group_by);
+
                 }
             }
 
             set_data(rowData);
-            event.api.setRowData(rowData);
+            //event.api.setRowData(rowData);
+            event.api.setGridOption('rowData', rowData)
             event.api.redrawRows();
 
         };
@@ -614,76 +780,98 @@ const DataGrid = React.forwardRef( (props, ref) => {
 
 
 
-    useEffect( () => {
-
-        if (!grid_options) {
-            return;
-        }
-        if (!api) return;
-
-
-        if (props.column_defs) {
-            //api.setColumnDefs(props.column_defs);
-            api.setGridOption("columnDefs", props.column_defs);
-        }
-
-
-
-        if (props.data) {
-            let data = props.data;
-            if (props.group_by) {
-                //data = group_data(data, props.group_by)
-                grid_options["group_by"] = props.group_by;
-
-                // Find the sorted column(s)
-                //let columnState = grid_options.columnApi.getColumnState();
-                let columnState = api.columnModel.getColumnState();
-                let sortedColumns = columnState.filter(column => column.sort !== null);
-                if (sortedColumns.length > 0) {
-                    // let event handle the grouping
-                    //clear_filters();
-                    clear_sort();
-                }
-                else {
-                    data = group_data(data, props.group_by);
-                    api.setRowData(data);
-                }
-            }
-            else {
-                grid_options["group_by"] = "";
-                api.setRowData(data);
-            }
-        }
-
-
-    }, [props, api] )
-
-
-
-
 
     //
     // Group Data
     //
-    const group_data = (items, group_by) => {
+    const group_data = (items, group_by, options) => {
+
+        if (!options) options = {};
+
         // Add groups
         let last_group_value = null;
 
         //clear_filters();
         //clear_sort();
 
+        let sort_column = null;
+        if (options.sort_column) {
+            sort_column = options.sort_column;
+        }
+
+        let order_list = null;
+        if (options.order_list) {
+            ///order_list = ["Roto", "Match Move", "Modeling", "Animation", "FX", "Lighting", "Compositing"]
+            order_list = options.order_list;
+        }
+
         items = [...items];
-        items.sort((a, b) => a[group_by]?.localeCompare(b[group_by]));
+
+        if (!order_list) {
+            items.sort((a, b) => a[group_by]?.localeCompare(b[group_by]));
+        }
+        else {
+
+            items.sort((a, b) => {
+                let a_value = a[group_by];
+                let b_value = b[group_by];
+                if (!a_value || a_value === "") {
+                    a_value = "ZZZ";
+                }
+                if (!b_value || b_value === "") {
+                    b_value = "ZZZ";
+                }
+
+
+                // If the group values are the same, then sort by the sort column if it exists
+                if (a_value === b_value) {
+                    if (sort_column) {
+                        if (typeOf(a[sort_column]) === "string") {
+                            return a[sort_column]?.localeCompare(b[sort_column]);
+                        }
+                        else {
+                            return a[sort_column] - b[sort_column];
+                        }
+                      
+                    }
+                }
+ 
+   
+              
+                let a_index = order_list.indexOf(a_value);
+                let b_index = order_list.indexOf(b_value);
+   
+   
+                // If both values are found in the 'order_list', sort by their index
+                if (a_index !== -1 && b_index !== -1) {
+                    return a_index - b_index;
+                }
+   
+                // If both are not found, then sort by their value
+                if (a_index === -1 && b_index === -1) {
+                    return a_value.localeCompare(b_value);
+                }
+   
+                if (a_index === -1) {
+                    return 1;
+                }
+                if (b_index === -1) {
+                    return -1;
+                }
+                return 0;
+            });
+        }
+
 
         let group_data = [];
         items.forEach( item => {
             let group_value = item[group_by];
-            if (group_value != last_group_value) {
+            if (group_value !== last_group_value) {
                 let group_item = {
                     name: group_value,
                     column: group_by,
                     __type__: "group",
-                    __background__: "#CCC",
+                    __background__: "#DDD",
                     __color__: "#000",
                 }
                 group_data.push(group_item)
@@ -697,18 +885,15 @@ const DataGrid = React.forwardRef( (props, ref) => {
     }
 
     // TODO
+    /*
     const collapse_data = (data, collapse_by) => {
     }
-
-
-
-
-
+    */
 
 
 
     // TEST TEST TEST TEST - DEPRECATED
-
+    /*
     function generate_pinned_data(params) {
         // generate a row-data with null values
         let result2 = {};
@@ -740,7 +925,7 @@ const DataGrid = React.forwardRef( (props, ref) => {
     function calculatePinnedBottomData(target, params){
         let columnsWithAggregation = ['days', 'rate', 'booking_days', 'budget', 'booking_budget', 'actual_days', 'actual_cost']
         columnsWithAggregation.forEach(element => {
-            params.api.forEachNodeAfterFilter((rowNode) => {
+            params.api?.forEachNodeAfterFilter((rowNode) => {
                 if (rowNode.data[element])
                     target[element] += Number(rowNode.data[element].toFixed(2));
             });
@@ -766,7 +951,7 @@ const DataGrid = React.forwardRef( (props, ref) => {
             //result[item.colId] = null;
             let column = item.colId;
             let parts = column.split("-");
-            if (parts.length == 3) {
+            if (parts.length === 3) {
                 columns.push(column);
             }
         });
@@ -781,9 +966,9 @@ const DataGrid = React.forwardRef( (props, ref) => {
             let total = 0;
             let count = 0;
 
-            params.api.forEachNodeAfterFilter((rowNode) => {
+            params.api?.forEachNodeAfterFilter((rowNode) => {
                 let data = rowNode.data[element];
-                if (!data && element != "budget") {
+                if (!data && element !== "budget") {
                     data = rowNode.data.work_hours[element];
                 }
                 if (data) {
@@ -797,11 +982,11 @@ const DataGrid = React.forwardRef( (props, ref) => {
                             console.log("WARNING: " + e);
                         }
                     }
-                    //console.log("value: " + value , " == ", total);
+                    //console.log("value: " + value , " === ", total);
                 }
             });
 
-            if (element == "budget") {
+            if (element === "budget") {
                 target[element] = total;
             }
             else {
@@ -821,6 +1006,7 @@ const DataGrid = React.forwardRef( (props, ref) => {
 
         return target;
     }
+    */
 
 
 

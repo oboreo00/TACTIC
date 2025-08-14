@@ -1519,7 +1519,6 @@ class PluginTools(PluginBase):
         tools = PluginTools(plugin_dir=self.plugin_dir)
         tools.dump_sobject(search_type, backup_path)
 
-
         # get the table and remove it
         from pyasm.search import DropTable
         try:

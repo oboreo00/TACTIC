@@ -21,14 +21,14 @@ import sys, os, string, re, stat, glob
 
 
 try:
-    from PIL import Image
+    from PIL import Image, ExifTags
     # Test to see if imaging actually works
     #import _imaging
     HAS_PIL = True
 except:
     HAS_PIL = False
     try:
-        import Image
+        import Image, ExifTags
         # Test to see if imaging actually works
         #import _imaging
         HAS_PIL = True
@@ -865,6 +865,8 @@ class IconCreator(object):
                 if large_path.lower().endswith('psd'):
                     large_path += "[0]"
 
+                convert_cmd.extend(['-auto-orient', '-strip'])
+                
                 if free_aspect_ratio:
                     # The max allowed height is 10x the width
                     convert_cmd.extend(['-resize','%sx%s>' % (thumb_size[0], thumb_size[0]*10)])
@@ -906,18 +908,33 @@ class IconCreator(object):
                     im.seek(0)
                     im = im.convert('RGB')
 
+                try:
+                    # For Pillow 10.0 and later
+                    resampling_filter = Image.Resampling.LANCZOS
+                except AttributeError:
+                    # For older versions of Pillow
+                    resampling_filter = Image.ANTIALIAS
+
+                im = self.correct_orientation(im)
                 x,y = im.size
                 to_ext = "PNG"
                 if small_path.lower().endswith('jpg') or small_path.lower().endswith('jpeg'):
                     to_ext = "JPEG"
                 if x >= y:
-                    im.thumbnail( (thumb_size[0],10000), Image.ANTIALIAS )
+                    im.thumbnail( (thumb_size[0],10000), resampling_filter )
+                    # Handle transparent images
+                    if im.mode in ('RGBA', 'LA') or (im.mode == 'P' and 'transparency' in im.info):
+                        # Create a white background image
+                        background = Image.new('RGB', im.size, (255, 255, 255))
+                        background.paste(im, mask=im.split()[3])  # 3 is the alpha channel
+                        im = background
                     if im.mode != "RGB":
                         im = im.convert("RGB")
                     im.save(small_path, to_ext)
+            
                 else:
 
-                    #im.thumbnail( (10000,thumb_size[1]), Image.ANTIALIAS )
+                    #im.thumbnail( (10000,thumb_size[1]), resampling_filter )
                     x,y = im.size
 
                     if free_aspect_ratio:
@@ -934,13 +951,17 @@ class IconCreator(object):
                         base_height = thumb_size[1]
                         h_percent = (base_height/float(y))
                         base_width = int((float(x) * float(h_percent)))
-                    im = im.resize((base_width, base_height), Image.ANTIALIAS )
+                    im = im.resize((base_width, base_height), resampling_filter )
 
                     # then paste to white image
                     im2 = Image.new( "RGB", (base_width, base_height), (255,255,255) )
                     offset = (base_width/2) - (im.size[0]/2)
-                    im2.paste(im, (offset,0) )
+                    if im.mode in ('RGBA', 'LA') or (im.mode == 'P' and 'transparency' in im.info):
+                        im2.paste(im, (int(offset),0), mask=im.split()[3] )
+                    else:
+                        im2.paste(im, (int(offset),0) )
                     im2.save(small_path, to_ext)
+                    
 
             # if neither IM nor PIL is installed, check if this is a mac system and use sips if so
             elif sys.platform == 'darwin':
@@ -957,6 +978,28 @@ class IconCreator(object):
             raise TacticException('Icon generation failed')
 
 
+    def correct_orientation(self, image):
+        try:
+            for orientation in ExifTags.TAGS.keys():
+                if ExifTags.TAGS[orientation] == 'Orientation':
+                    break
+
+            exif = image._getexif()
+            if exif is not None:
+                orientation = exif[orientation]
+
+                if orientation == 3:
+                    image = image.rotate(180, expand=True)
+                elif orientation == 6:
+                    image = image.rotate(270, expand=True)
+                elif orientation == 8:
+                    image = image.rotate(90, expand=True)
+        except (AttributeError, KeyError, IndexError):
+            pass
+
+        return image
+
+
     def _resize_texture(self, large_path, small_path, scale):
 
         # create the thumbnail
@@ -966,7 +1009,14 @@ class IconCreator(object):
             x,y = im.size
             resize = int( float(x) * scale )
 
-            im.thumbnail( (resize,10000), Image.ANTIALIAS )
+            try:
+                # For Pillow 10.0 and later
+                resampling_filter = Image.Resampling.LANCZOS
+            except AttributeError:
+                # For older versions of Pillow
+                resampling_filter = Image.ANTIALIAS
+
+            im.thumbnail( (resize,10000), resampling_filter )
             im.save(small_path, "PNG")
         except:
             if sys.platform == 'darwin':

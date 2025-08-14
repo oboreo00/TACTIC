@@ -13,7 +13,7 @@ from pyasm.search import SearchType
 from pyasm.command import Command
 from pyasm.search import Search
 
-
+import re
 
 
 class BaseTableSearchCmd(Command):
@@ -107,7 +107,7 @@ class BaseTableSearchCmd(Command):
                     try:
                         value = sobject.get_value(column)
                     except:
-                        value = "N/A"
+                        value = ""
 
                     sobject_dict[name] = value
 
@@ -167,7 +167,6 @@ class TableSaveCmd(Command):
         config_class = self.kwargs.get("config_handler")
         if not config_class:
             return []
-
         handler = Common.create_from_class_path(config_class)
         config = handler.get_full_config()
 
@@ -188,50 +187,116 @@ class TableSaveCmd(Command):
             name = item.get("name")
             configs[name] = item;
 
+        config_class = self.kwargs.get("config_handler")
+        if config_class:
+            handler = Common.create_from_class_path(config_class)
+        else:
+            handler = None
+ 
+
 
         new_sobjects = []
         updated_sobjects = []
+        sobjects = []
+
 
         for update in updates:
 
             search_key = update.get("search_key")
-            sobject = Search.get_by_search_key(search_key)
+            if search_key:
+                sobject = Search.get_by_search_key(search_key)
+                if not sobject:
+                    raise Exception("SObject [%s] does not exist" % search_key)
 
+                column = update.get("column")
+                value = update.get("value")
 
-            column = update.get("column")
-            value = update.get("value")
-
-            update_column = column
-
-            config = configs.get(column) or {"name": column}
-            edit = config.get("edit")
-
-            if edit:
-                edit_handler = Common.create_from_class_path(edit)
-                edit_handler.update(sobject, update)
-
+                data = update.get("data")
+                if column:
+                    item = {
+                        column: value
+                    }
+                elif data:
+                    item = data
+                else:
+                    raise Exception("Nothing to update")
 
             else:
-                update_column = config.get("column") or config.get("name")
-                if value == "":
-                    sobject.set_value(update_column, "NULL", quoted=False)
+                search_type = update.get("search_type")
+                sobject = SearchType.create(search_type)
+                item = update.get("item")
 
-                sobject.set_value(update_column, value)
+                code = item.get("code")
+                sobject.set_value("code", code)
 
 
+            for column, value in item.items():
 
+                update_column = column
+
+                config = configs.get(column) or {"name": column}
+                #print("config: ", config)
+                edit = config.get("edit")
+
+                if edit:
+                    edit_handler = Common.create_from_class_path(edit)
+                    edit_handler.update(sobject, update)
+
+
+                else:
+                    update_column = config.get("column") or config.get("name")
+                    if value == "":
+                        # handle empty value
+                        if update_column.find("->") != -1:
+                            parts = update_column.split("->")
+                            data = sobject.get_json_value(parts[0]) or {}
+                            if data.get(parts[1]) != None:
+                                del data[parts[1]]
+                                sobject.set_json_value(parts[0], data)
+                        else:
+                            sobject.set_value(update_column, "NULL", quoted=False)
+                    else:
+
+                        format = config.get("format")
+                        if format == "$":
+                            value = re.sub(r'[^\d.]', '', value)
+                            value = float(value)
+
+                        sobject.set_value(update_column, value)
+
+            # handle any extra data passed in
+            extra_data = self.kwargs.get("extra_data") or {}
+            for column, value in extra_data.items():
+
+                config = configs.get(column)
+                if config:
+                    update_column = config.get("column") or config.get("name")
+                    if value == "":
+                        if update_column.find("->") != -1:
+                            parts = update_column.split("->")
+                            data = sobject.get_json_value(parts[0]) or {}
+                            if data.get(parts[1]) != None:
+                                del data[parts[1]]
+                                sobject.set_json_value(parts[0], data)
+                        else:
+                            sobject.set_value(update_column, "NULL", quoted=False)
+                    else:
+                        sobject.set_value(update_column, value)
+                else:
+                    sobject.set_value(column, value)
+
+            if handler:
+                handler.preprocess_commit(sobject)
             sobject.commit()
 
             sobject_dict = sobject.get_sobject_dict()
-            updated_sobjects.append(sobject_dict)
 
+            sobjects.append(sobject_dict)
+
+        self.info["sobjects"] = sobjects
         self.info["new_sobjects"] = new_sobjects
         self.info["updated_sobjects"] = updated_sobjects
 
-
-
-
-        
 
 class EditSaveCmd(Command):
 
@@ -242,6 +307,12 @@ class EditSaveCmd(Command):
 
         config_handler = self.kwargs.get("config_handler")
         config = Common.create_from_class_path(config_handler)
+        config_list = config.get_full_config() or []
+
+        config_dict = {}
+        for config_item in config_list:
+            config_dict[config_item.get("name")] = config_item
+
 
         new_sobjects = []
 
@@ -253,7 +324,12 @@ class EditSaveCmd(Command):
 
             sobject = SearchType.create(search_type)
             for name, value in item.items():
-                sobject.set_value(name, value)
+
+                config_item = config_dict.get(name) or {}
+                column = config_item.get("column")
+                if not column:
+                    column = name
+                sobject.set_value(column, value)
 
             item_data = {};
 
