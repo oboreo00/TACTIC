@@ -753,7 +753,11 @@ class Search(Base):
         else:
             if not op:
                 op = '='
-            self.add_filter("%ssearch_id" % prefix, sobject.get_id(), op=op )
+            sobject_id = sobject.get_id()
+            if isinstance(sobject_id, int):
+                self.add_filter("%ssearch_id" % prefix, sobject.get_id(), op=op )
+            else:
+                self.add_filter("%ssearch_code" % prefix, sobject.get_id(), op=op )
 
 
 
