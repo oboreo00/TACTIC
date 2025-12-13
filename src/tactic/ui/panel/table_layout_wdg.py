@@ -9042,8 +9042,6 @@ spt.table.save_view_cbk = function(table_id, login) {
     }
 
     spt.app_busy.show( 'Saving View', new_title );
-    console.log('calling save_view ', table_view, kwargs)
-    //var rtn;
     var rtn = spt.table.save_view(table_id, table_view, kwargs);
     spt.app_busy.hide();
 
