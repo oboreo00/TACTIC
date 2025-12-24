@@ -137,4 +137,4 @@ Easily start up your production by creating a project with TACTIC nad selecting 
 
 ## License
 
-[Licensed under the MIT License(LICENSE)
+Licensed under the MIT License
