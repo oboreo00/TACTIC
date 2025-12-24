@@ -6038,9 +6038,9 @@ class SObject(object):
                         value = None
                 if isinstance(value, datetime.datetime):
                     value = str(value)
-                elif isinstance(value, decimal.Decimal):
-                    # use str to avoid loss of precision
-                    value = str(value)
+                #elif isinstance(value, decimal.Decimal):
+                #    # use str to avoid loss of precision
+                #    value = str(value)
 
             result[column] = value
 

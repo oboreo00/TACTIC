@@ -2012,7 +2012,8 @@ class Security(Base):
 
             if ticket and ticket.get("ticket"):
                 self._ticket = ticket
-            elif ticket_key:
+            #elif ticket_key:
+            else:
                 self._ticket = self._generate_ticket(login_name, expiry, ticket_key=ticket_key, category=category)
         finally:
             sudo.exit()

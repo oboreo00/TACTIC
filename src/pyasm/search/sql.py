@@ -3746,6 +3746,9 @@ class DropTable(Base):
 
         # dump table into sql first
         tmp_dir = Environment.get_tmp_dir()
+        if not os.path.exists("%s/cache" % tmp_dir):
+            os.makedirs("%s/cache" % tmp_dir)
+
         schema_path = "%s/cache/drop_%s_%s.sql" % \
             (tmp_dir, self.database, self.table)
 
