@@ -59,7 +59,7 @@ class ProcessInputWdg(BaseInputWdg):
             # ProcessElementWdg's handle_td() sets the spt_pipeline_code attribute
             top.add_attr("spt_cbjs_get_input_key", "return cell_to_edit.getAttribute('spt_pipeline_code')")
 
-
+        input_default = None
         # Need to import this dynamically
         from tactic.ui.panel import EditWdg
         # This is only executed for the popup edit widget
@@ -87,6 +87,7 @@ class ProcessInputWdg(BaseInputWdg):
                     return top
                     #raise TacticException('[%s] needs a pipeline_code attribute to insert task.'%parent.get_code())
 
+                input_default = self.get_value(True)
                 pipe_code = parent.get_value('pipeline_code')
                 if pipe_code:
                     self.pipeline_codes  = [pipe_code]
@@ -123,9 +124,9 @@ class ProcessInputWdg(BaseInputWdg):
                 div.add(text)
                 continue
 
-
-
             select = SelectWdg(name)
+            if input_default:
+                select.set_value(input_default)
             select.add_empty_option("-- Select a %s --" % self.get_name() )
 
             # TODO: make spt.dg_table.select_wdg_clicked keyboard action free so it won't interfere with

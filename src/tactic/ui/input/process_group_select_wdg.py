@@ -72,7 +72,11 @@ class ProcessGroupSelectWdg(BaseInputWdg):
                 if self.labels_attr:
                     labels_expr = ["@GET(sthpw/login.%s)"%(x.strip()) for x in self.labels_attr]
                     labels_expr =  ' + &nbsp + '.join(labels_expr)
+
             select = SelectWdg(self.get_input_name())
+            input_default = self.get_value(True)
+            if input_default:
+                select.set_value(input_default)
             select.add_empty_option("-- Select a User --")
             """
             values = []
@@ -147,7 +151,6 @@ Search.eval("@GET(sthpw/login_group['login_group',
         # Adding an "all users" select option in case it can't find a useful select widget.
         div = DivWdg()
         div.add_class("spt_input_option")
-        #div.add_attr("spt_input_key", '__all__') #Not needed, since it defaults to the first one anyway.
         select = SelectWdg(self.get_name())
         select.add_empty_option("-- Select a User --")
         values = []
