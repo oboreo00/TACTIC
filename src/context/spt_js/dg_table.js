@@ -1275,6 +1275,7 @@ spt.dg_table.table_action_cbk = function(element, table_id ) {
 // Callback on the view action selection.  This selection allows you to
 // manipulate the view.
 //
+// TODO: move this to TableLayoutWdg
 spt.dg_table.view_action_cbk = function(element, table_id , bvr) {
 
     var table;
@@ -1371,7 +1372,7 @@ spt.dg_table.view_action_cbk = function(element, table_id , bvr) {
         var last_element = '';
         if (panel) {
             new_title = panel.getAttribute('spt_title');
-            last_element = panel.getAttribute("spt_element_name");
+            last_element = panel.getAttribute("spt_element_name") || '';
         }
         if (!new_title && panel) {
             var tab_top = panel.getParent('.spt_tab_content');
@@ -1395,7 +1396,7 @@ spt.dg_table.view_action_cbk = function(element, table_id , bvr) {
         var title = 'Save Current View';
         var msg = 'Saving View [ ' + kwargs.new_title + ' ]';
         spt.app_busy.show( title, msg );
-        setTimeout( function() {spt.dg_table.save_view(table_id, new_view, kwargs);spt.app_busy.hide();}, 0 );
+        setTimeout( function() { spt.table.save_view(table_id, new_view, kwargs);spt.app_busy.hide(); }, 0);
 
     }
     else if (value == "save_project_view") {
@@ -1607,7 +1608,7 @@ spt.dg_table.save_view = function(table_id, new_view, kwargs)
             var search_view = 'link_search:'+ element_name;
             // auto generate a new search for this view
             search_wdg.setAttribute("spt_search_view", search_view);
-            spt.dg_table.save_search(search_wdg, search_view, {'unique': kwargs.unique, 'personal': save_as_personal});
+            spt.table.save_search(search_wdg, search_view, {'unique': kwargs.unique, 'personal': save_as_personal});
 
             custom_search_view = search_wdg.getAttribute('spt_custom_search_view');
         }
