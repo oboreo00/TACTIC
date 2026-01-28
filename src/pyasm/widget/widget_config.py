@@ -1383,7 +1383,7 @@ class WidgetConfigView(Base):
             search_type_obj = search_type
         else:
             search_type_obj = SearchType.get(search_type)
-        base_search_type = search_type_obj.get_base_key()
+
         from pyasm.biz import Project
         search_type = Project.get_full_search_type(full_search_type)
 
@@ -1461,13 +1461,13 @@ class WidgetConfigView(Base):
         else:
             default_definition = "definition"
 
-        # this determines at what point we need to append the default defnition config and ALL config
-        # it auto switches between defintion or edit_definition, there is no need to hardcode edit_definition
+        # this determines at what point we need to append the default definition config and ALL config
+        # it auto switches between definition or edit_definition, there is no need to hardcode edit_definition
 
         db_definition_found = False
         # look in the database for the view
         if not local_search:
-            db_config = WidgetDbConfig.get_by_search_type(search_type,view)
+            db_config = WidgetDbConfig.get_by_search_type(search_type, view)
             # if no insert defined in db or internal conf, resort to edit
             if not db_config and view =='insert':
                 if os.path.exists(internal_conf_path):
@@ -1748,7 +1748,7 @@ class WidgetConfigView(Base):
             search_type_obj = search_type
         else:
             search_type_obj = SearchType.get(search_type)
-        base_search_type = search_type_obj.get_base_key()
+
         from pyasm.biz import Project
         search_type = Project.get_full_search_type(full_search_type)
 
