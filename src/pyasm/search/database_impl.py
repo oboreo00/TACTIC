@@ -2206,6 +2206,8 @@ class PostgresImpl(BaseSQLDatabaseImpl):
                 elif data_type == 'boolean':
                     data_type = "boolean"
                 elif data_type == 'jsonb':
+                    data_type = "jsonb"
+                elif data_type == 'json':
                     data_type = "json"
                 elif data_type.startswith("timestamp"):
                     data_type = "timestamp"
