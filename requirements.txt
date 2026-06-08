@@ -1,0 +1,10 @@
+psycopg2-binary
+Pillow
+lxml
+pycryptodomex
+six
+pytz
+jaraco.functools
+requests
+python-ldap
+supervisor

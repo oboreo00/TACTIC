@@ -378,6 +378,7 @@ API_MODE = {
         "execute_cmd",
         "get_widget",
         "get_ticket",
+        "get_ticket_data",
         "ping",
 
         # These are questionable?
@@ -1257,7 +1258,7 @@ class ApiXMLRPC(BaseApiXMLRPC):
                 DbContainer.release_thread_sql()
 
         return ticket
-    get_ticket.exposed = True
+    get_ticket_data.exposed = True
 
 
 

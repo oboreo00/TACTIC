@@ -10,15 +10,150 @@
 #
 #
 
-__all__ = ['CherryPyException', 'CherryPyAdapter', "get_app_server"]
+__all__ = ['CherryPyException', 'CherryPyAdapter', "get_app_server", "install_tactic_xmlrpc_error_handler"]
 
 
-import types, os, re
+import types, os, re, sys
 
 from pyasm.common import TacticException
 from .web_environment import *
 
 import cherrypy
+from xmlrpc.client import Fault as XMLRPCFault, dumps as xmlrpc_dumps
+
+
+# XML-RPC fault codes for API clients (msm-api-platform maps these to HTTP status).
+FAULT_GENERAL = 1
+FAULT_APPLICATION = 2
+FAULT_AUTH = 401
+FAULT_FORBIDDEN = 403
+FAULT_NOT_FOUND = 404
+FAULT_REMOTE = 5
+
+
+def _resolve_xmlrpc_fault_code(exc):
+    '''Map TACTIC exceptions to stable fault codes instead of always 1.'''
+    if exc is None:
+        return FAULT_GENERAL
+
+    try:
+        from pyasm.prod.service.api_xmlrpc import ApiException, RemoteApiException
+    except ImportError:
+        ApiException = type(None)
+        RemoteApiException = type(None)
+
+    try:
+        from pyasm.common import SecurityException, SObjectSecurityException
+    except ImportError:
+        SecurityException = type(None)
+        SObjectSecurityException = type(None)
+
+    if isinstance(exc, RemoteApiException):
+        return FAULT_REMOTE
+
+    # SObjectSecurityException is row/column-level authorization: the caller IS
+    # authenticated but is not permitted to touch this sObject -> 403 Forbidden.
+    # It subclasses SecurityException, so it must be checked first.
+    if isinstance(exc, SObjectSecurityException):
+        return FAULT_FORBIDDEN
+
+    # A plain SecurityException is TACTIC's authentication failure: wrong
+    # login/password (get_ticket/get_ticket_data), expired/invalid ticket,
+    # disabled user, unrecognized user, license issues, etc. These are "who are
+    # you / your credentials are bad" -> 401 Unauthorized, which is what lets a
+    # real wrong-password call surface as a genuine 401 instead of a 403.
+    # A handful of SecurityException messages are really authorization rather
+    # than authentication ("permission denied"); keep those as 403.
+    if isinstance(exc, SecurityException):
+        msg = str(exc).lower()
+        if any(token in msg for token in (
+            'permission denied',
+            'access denied',
+            'not allowed',
+        )):
+            return FAULT_FORBIDDEN
+        return FAULT_AUTH
+
+    if isinstance(exc, ApiException):
+        msg = str(exc).lower()
+        if any(token in msg for token in (
+            'permission denied',
+            'access denied',
+            'not allowed',
+            'wrong user',
+        )):
+            return FAULT_FORBIDDEN
+        if any(token in msg for token in (
+            'invalid_ticket',
+            'invalid ticket',
+            'api key not valid',
+            'login',
+            'authentication',
+            'not authenticated',
+        )):
+            return FAULT_AUTH
+        if 'does not exist' in msg:
+            return FAULT_NOT_FOUND
+        return FAULT_APPLICATION
+
+    if isinstance(exc, TacticException):
+        return FAULT_APPLICATION
+
+    return FAULT_GENERAL
+
+
+def tactic_xmlrpc_on_error(*args, **kwargs):
+    '''CherryPy XML-RPC error hook with typed fault codes.'''
+    exc_type, exc, tb = sys.exc_info()
+    fault_code = _resolve_xmlrpc_fault_code(exc)
+    if exc is not None:
+        body = str(exc)
+    elif exc_type is not None:
+        body = exc_type.__name__
+    else:
+        body = "Unknown error"
+
+    from cherrypy.lib import xmlrpcutil
+    xmlrpcutil._set_response(xmlrpc_dumps(XMLRPCFault(fault_code, body)))
+
+
+def install_tactic_xmlrpc_error_handler():
+    '''Make TACTIC XML-RPC faults carry a typed code instead of always 1.
+
+    CherryPy's XML-RPC error handler is the ErrorTool instance
+    ``cherrypy.tools.xmlrpc``. That tool captured ``xmlrpcutil.on_error`` *by
+    reference* when ``cherrypy._cptools`` was first imported, so reassigning the
+    module-level ``xmlrpcutil.on_error`` alone is NOT enough -- the live tool
+    keeps calling the stock handler (which always emits faultCode 1).
+
+    ErrorTool reads ``self.callable`` dynamically at request time, so the
+    reliable override is to reassign that attribute on the live tool. We also
+    reassign the module-level hook so anything resolving it later sees ours too.
+
+    If this install is disabled, set ``TACTIC_TYPED_FAULT_CODES=false`` on
+    msm-api-platform so the API falls back to method/message heuristics.
+    '''
+    import cherrypy
+    from cherrypy.lib import xmlrpcutil
+
+    if getattr(xmlrpcutil, '_tactic_error_handler_installed', False):
+        return
+
+    # 1) Module-level hook (covers code paths that resolve it dynamically).
+    xmlrpcutil.on_error = tactic_xmlrpc_on_error
+
+    # 2) The live ErrorTool that actually services XML-RPC requests. This is the
+    #    one that matters: it captured the stock on_error at import time.
+    try:
+        cherrypy.tools.xmlrpc.callable = tactic_xmlrpc_on_error
+    except Exception as e:
+        print("WARNING: could not patch cherrypy.tools.xmlrpc.callable:", e)
+
+    xmlrpcutil._tactic_error_handler_installed = True
+    print("Installed TACTIC XML-RPC error handler (typed fault codes)")
+
+
+install_tactic_xmlrpc_error_handler()
 
 
 class CherryPyException(Exception):
