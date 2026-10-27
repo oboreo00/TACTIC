@@ -18,10 +18,22 @@ from pyasm.search.upgrade.project import *
 
 class SthpwUpgrade(BaseUpgrade):
 
+    def upgrade_v5_0_0_a02_001(self):
+        self.run_sql('''
+          update search_object set table_name='spt_prod_setting' where search_type='config/prod_setting';
+        ''')
+        self.run_sql('''
+          update search_object set table_name='spt_naming' where search_type='config/naming';
+        ''')
+        self.run_sql('''
+          update search_object set table_name='spt_custom_script' where search_type='config/custom_script';
+        ''')
+        self.run_sql('''
+          update search_object set table_name='spt_widget_config' where search_type='config/widget_config';
+        ''')
     #
     # 4.9.0
     #
-
     def upgrade_v4_9_0_a01_003(self):
         if self.get_database_type() == 'PostgreSQL':
             self.run_sql('''

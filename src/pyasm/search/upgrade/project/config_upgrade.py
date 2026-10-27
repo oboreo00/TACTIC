@@ -19,6 +19,32 @@ from pyasm.search.upgrade.project import *
 class ConfigUpgrade(BaseUpgrade):
 
 
+    def upgrade_v5_0_0_a02_001(self):
+        self.run_sql('''
+        ALTER TABLE prod_setting RENAME TO spt_prod_setting;
+        ''')
+        self.run_sql('''
+        ALTER TABLE naming RENAME TO spt_naming;
+        ''')
+        self.run_sql('''
+        ALTER TABLE custom_script RENAME TO spt_custom_script;
+        ''')
+        self.run_sql('''
+        ALTER TABLE widget_config RENAME TO spt_widget_config;
+        ''')
+        self.run_sql('''
+        ALTER SEQUENCE IF EXISTS prod_setting_id_seq RENAME TO spt_prod_setting_id_seq;
+        ''')
+        self.run_sql('''
+        ALTER SEQUENCE IF EXISTS naming_id_seq RENAME TO spt_naming_id_seq;
+        ''')
+        self.run_sql('''
+        ALTER SEQUENCE IF EXISTS custom_script_id_seq RENAME TO spt_custom_script_id_seq;
+        ''')
+        self.run_sql('''
+        ALTER SEQUENCE IF EXISTS widget_config_id_seq RENAME TO spt_widget_config_id_seq;
+        ''')
+
     def upgrade_v4_7_0_a10_002(self):
         if self.get_database_type() == 'PostgreSQL':
             self.run_sql('''
